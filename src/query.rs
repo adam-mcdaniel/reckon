@@ -1,8 +1,10 @@
 use super::*;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ops::Index;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
+use tracing::{debug, error, info};
 
 #[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Query {
@@ -113,7 +115,7 @@ impl Query {
                 Term::Complement(term) => {
                     // Check if there are any free variables in the term
                     let mut removed = true;
-                    for rule in env.rules().iter() {
+                    for rule in env.get_rules().iter() {
                         let mut query = Query::new([*term.clone()]);
                         // let is_reducible = query.has_used_vars();
                         // if is_reducible {

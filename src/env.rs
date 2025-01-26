@@ -1,10 +1,18 @@
 use super::*;
-use std::collections::{vec_deque, BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
-use std::cmp::Ordering;
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
+use tracing::{debug, warn};
+use std::fmt::{Display, Debug, Formatter, Result as FmtResult};
+use std::hash::Hash;
 
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+/// A search traversal strategy.
+/// 
+/// This enum represents the different strategies that can be used to traverse the search space.
+/// 
+/// - `DepthFirst`: Traverse the search space in a depth-first manner. This will pursue a single path as far as possible before backtracking.
+/// - `BreadthFirst`: Traverse the search space in a breadth-first manner. This will explore all paths at a given depth before moving to the next depth.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Traversal {
     DepthFirst,
     #[default]
@@ -12,14 +20,16 @@ pub enum Traversal {
 }
 
 impl Traversal {
-    fn get_next_in_queue<T>(&mut self, queue: &mut VecDeque<T>) -> Option<T> {
+    /// Get the next item from the queue, depending on the traversal strategy.
+    pub fn get_next_in_queue<T>(&mut self, queue: &mut VecDeque<T>) -> Option<T> {
         match self {
             Traversal::DepthFirst => queue.pop_back(),
             Traversal::BreadthFirst => queue.pop_front(),
         }
     }
 
-    fn push_to_queue<T>(&self, queue: &mut VecDeque<T>, item: T) {
+    /// Push an item to the queue, depending on the traversal strategy.
+    pub fn push_to_queue<T>(&self, queue: &mut VecDeque<T>, item: T) {
         match self {
             Traversal::DepthFirst => queue.push_back(item),
             Traversal::BreadthFirst => queue.push_back(item),
@@ -27,28 +37,71 @@ impl Traversal {
     }
 }
 
+/// A configuration for a search.
+/// 
+/// This struct contains all the parameters that can be used to configure the search for solutions.
+/// 
+/// - `max_search_depth`: The maximum depth to search to. If `None`, the search will continue until a solution is found or the step limit is reached.
+/// 
+/// - `max_search_width`: The maximum width of the search -- this constrains how many subsearches can be performed for each rule application.
+/// If the width is reached, the possible paths remaining for a given query will be pruned.
+/// 
+/// - `step_limit`: The maximum number of steps to perform in the search. If `None`, the search will continue until a solution is found or the depth limit is reached.
+/// 
+/// - `prune`: Whether to prune the search space by removing redundant variables and simplifying queries while searching. This likely decreases the search space,
+/// but may increase the time taken to find a solution.
+/// 
+/// - `traversal`: The traversal strategy to use for the search.
+/// 
+/// - `require_head_match`: Whether to require that a rule applies to the first goal in a query before applying it to the rest of the goals.
+/// 
+/// - `queue_sorter`: A function that can be used to sort the queue of queries after a certain number of steps. This can be used to prioritize certain queries.
+/// 
+/// - `sort_after_steps`: The number of steps to perform before sorting the queue of queries.
+/// 
+/// - `reduce_query`: Whether to reduce the query after each rule application. This can be used to simplify the query and reduce the search space, but may increase the time taken to find a solution.
+/// 
+/// - `solution_limit`: The maximum number of solutions to find. If this limit is reached, the search will stop.
+/// 
+/// - `clean_memoization`: Whether to clean the memoization cache after the full search. After the full search is performed,
+/// the final solution is retained and memoized, but the sub-solutions are removed from the cache.
 #[derive(Clone)]
 pub struct SearchConfig<S> where S: Solver {
+    /// The maximum depth to search to. If `None`, the search will continue until a solution is found or the step limit is reached.
     pub max_search_depth: Option<usize>,
+    /// The maximum width of the search -- this constrains how many subsearches can be performed for each rule application.
     pub max_search_width: Option<usize>,
+    /// The maximum number of steps to perform in the search. If `None`, the search will continue until a solution is found or the depth limit is reached.
     pub step_limit: Option<usize>,
+    /// Whether to prune the search space by removing redundant variables and simplifying queries while searching. This likely decreases the search space,
     pub prune: bool,
+    /// The traversal strategy to use for the search.
     pub traversal: Traversal,
+    /// Whether to require that a rule applies to the first goal in a query before applying it to the rest of the goals.
     pub require_head_match: bool,
+    /// A function that can be used to sort the queue of queries after a certain number of steps. This can be used to prioritize certain queries.
     pub queue_sorter: Option<Arc<dyn Fn(&mut VecDeque<(Env<S>, Query, usize)>)>>,
+    /// The number of steps to perform before sorting the queue of queries.
     pub sort_after_steps: usize,
+    /// Whether to reduce the query after each rule application. This can be used to simplify the query and reduce the search space, but may increase the time taken to find a solution.
     pub reduce_query: bool,
+    /// The maximum number of solutions to find. If this limit is reached, the search will stop.
     pub solution_limit: usize,
+    /// Whether to clean the memoization cache after the full search. After the full search is performed,
     pub clean_memoization: bool,
+    /// Stop application after the first goal in the query
+    pub stop_after_first_goal: bool,
 }
 
-
+/// Print the search configuration.
 impl<S> Debug for SearchConfig<S> where S: Solver {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
         write!(f, "SearchConfig")
     }
 }
 
+/// Compare two search configurations for equality.
+/// This is just to allow environments to be compared for equality.
 impl<S> PartialEq for SearchConfig<S> where S: Solver {
     fn eq(&self, other: &Self) -> bool {
         self.max_search_depth == other.max_search_depth
@@ -59,25 +112,38 @@ impl<S> PartialEq for SearchConfig<S> where S: Solver {
     }
 }
 
+/// Compare two search configurations for equality.
 impl<S> Eq for SearchConfig<S> where S: Solver {}
 
+
 impl<S> SearchConfig<S> where S: Solver {
+    /// Create a new search configuration with permissive defaults.
+    /// 
+    /// This configuration allows for a wide search space, with no limits on depth, width, or steps.
+    /// 
+    /// It is not recommended to use this configuration for most searches, as it may lead to long search times and high memory usage.
+    /// 
+    /// If you use this configuration, you should set limits on the search depth, width, and steps.
     pub fn permissive() -> Self {
         SearchConfig {
             max_search_depth: None,
             max_search_width: None,
             step_limit: None,
-            prune: true,
+            prune: false,
             require_head_match: false,
             traversal: Traversal::BreadthFirst,
             queue_sorter: None,
             sort_after_steps: 1,
-            reduce_query: true,
+            reduce_query: false,
             solution_limit: 1,
             clean_memoization: false,
+            stop_after_first_goal: false,
         }
     }
 
+    /// Parse a search configuration from a string.
+    /// 
+    /// This will parse the new options from the string and update the search configuration.
     pub fn parse<'a, 'b>(&'a mut self, s: &'b str) -> Result<&'b str, String> {
         parse_search_config(s, self)
             .map_err(|e| match e {
@@ -86,46 +152,61 @@ impl<S> SearchConfig<S> where S: Solver {
             }).map(|(rest, _)| rest)
     }
 
+    /// Create a new search configuration with the given maximum search depth.
     pub fn with_solution_limit(mut self, solution_limit: usize) -> Self {
         self.solution_limit = solution_limit;
         self
     }
 
+    /// Create a new search configuration with the given traversal strategy.
     pub fn with_traversal(mut self, traversal: Traversal) -> Self {
         self.traversal = traversal;
         self
     }
 
+    /// Create a new search configuration with the given clean memoization setting.
     pub fn with_clean_memoization(mut self, clean_memoization: bool) -> Self {
         self.clean_memoization = clean_memoization;
         self
     }
 
+    /// Create a new search configuration with the given stop after first goal setting.
+    pub fn with_stop_after_first_goal(mut self, stop_after_first_goal: bool) -> Self {
+        self.stop_after_first_goal = stop_after_first_goal;
+        self
+    }
+
+    /// Create a new search configuration with the given reduce query setting.
     pub fn with_reduce_query(mut self, reduce_query: bool) -> Self {
         self.reduce_query = reduce_query;
         self
     }
 
+    /// Create a new search configuration with the given require head match setting.
     pub fn with_require_rule_head_match(mut self, require_head_match: bool) -> Self {
         self.require_head_match = require_head_match;
         self
     }
-
+    
+    /// Create a new search configuration with the given depth limit.
     pub fn with_depth_limit(mut self, max_search_depth: usize) -> Self {
         self.max_search_depth = Some(max_search_depth);
         self
     }
 
+    /// Create a new search configuration with the given width limit.
     pub fn with_width_limit(mut self, max_search_width: usize) -> Self {
         self.max_search_width = Some(max_search_width);
         self
     }
 
+    /// Create a new search configuration with the given step limit.
     pub fn with_step_limit(mut self, step_limit: usize) -> Self {
         self.step_limit = Some(step_limit);
         self
     }
 
+    /// Create a new search configuration with the given sorter function, and the number of steps to sort after.
     pub fn with_sorter<K>(mut self, after_steps: usize, sorter: impl Fn(&Env<S>, &Query) -> K + 'static) -> Self where K: Ord {
         self.sort_after_steps = after_steps;
         self.queue_sorter = Some(Arc::new(
@@ -144,6 +225,7 @@ impl<S> SearchConfig<S> where S: Solver {
         self
     }
 
+    /// Sort the queue of queries using the sorter function.
     pub fn sort_queue(&self, queue: &mut VecDeque<(Env<S>, Query, usize)>) {
         if let Some(sorter) = &self.queue_sorter {
             debug!("Sorting queue");
@@ -151,23 +233,28 @@ impl<S> SearchConfig<S> where S: Solver {
         }
     }
 
+    /// Create a new search configuration with the given pruning setting.
     pub fn with_pruning(mut self, prune: bool) -> Self {
         self.prune = prune;
         self
     }
 
+    /// Check if the search configuration allows pruning.
     pub fn can_prune(&self) -> bool {
         self.prune
     }
 
+    /// Check if the search configuration allows deeper searches.
     pub fn can_search_deeper(&self, depth: usize) -> bool {
         self.max_search_depth.map(|max_depth| depth < max_depth).unwrap_or(true)
     }
 
+    /// Check if the search configuration allows wider searches.
     pub fn can_search_wider(&self, width: usize) -> bool {
         self.max_search_width.map(|max_width| width < max_width).unwrap_or(true)
     }
 
+    /// Check if the search configuration allows more steps to be performed.
     pub fn can_perform_step(&self, steps: usize) -> bool {
         self.step_limit.map(|limit| steps < limit).unwrap_or(true)
     }
@@ -183,22 +270,44 @@ impl<S> Default for SearchConfig<S> where S: Solver {
     }
 }
 
+/// An environment for a solver.
+/// 
+/// This stores the rules, variable bindings, search configuration, and solver for a given search.
+/// 
+/// The environment is used to store the state of the search, store variable bindings for unification,
+/// and to perform the search for solutions.
+/// 
+/// It also stores some bookkeeping information, such as the number of steps performed in the search.
 #[derive(Default, Debug, Clone, Eq)]
 pub struct Env<S> where S: Solver {
+    /// The rules to use in the search.
     rules: Arc<Vec<Rule>>,
+    /// The variable bindings for the search.
     var_bindings: Arc<HashMap<Var, Term>>,
+    /// The solver to use for the search.
     search_config: SearchConfig<S>,
+    /// The solver to use for the search. This allows for different memoization strategies to be used
+    /// by supplying different solvers.
     solver: S,
+    /// The queries that have been proven false.
+    /// This is used to avoid re-proving the same queries multiple times.
     proven_false: HashSet<Query>,
+    /// The number of steps performed in the search.
     steps: usize,
 }
 
+/// Compare two environments for equality.
 impl<S> PartialEq for Env<S> where S: Solver {
     fn eq(&self, other: &Self) -> bool {
         self.rules == other.rules && self.var_bindings == other.var_bindings
     }
 }
 
+/// Hash the environment to allow it to be used in hash maps.
+/// 
+/// This hashes the rules and variable bindings.
+/// 
+/// Because the environment uses a hashmap for the variable bindings, the variables are sorted before hashing.
 impl<S> Hash for Env<S> where S: Solver {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.rules.hash(state);
@@ -214,6 +323,7 @@ impl<S> Hash for Env<S> where S: Solver {
 }
 
 impl<S> Env<S> where S: Solver {
+    /// Create a new environment with the given rules.
     pub fn new(rules: &[Rule]) -> Self {
         Env {
             rules: Arc::new(rules.to_vec()),
@@ -225,27 +335,43 @@ impl<S> Env<S> where S: Solver {
         }
     }
 
+    /// Reset the solver in the environment.
+    /// 
+    /// This will clear the memoization cache in the solver.
+    pub fn reset_solver(&mut self) {
+        self.solver.reset();
+    }
+
+    /// Clear the environment, removing all rules and variable bindings.
+    pub fn reset(&mut self) {
+        self.var_bindings = Arc::new(HashMap::new());
+        self.proven_false = HashSet::new();
+        self.steps = 0;
+        self.solver.reset();
+    }
+
+    /// Get the number of steps performed in the search.
     pub fn get_steps(&self) -> usize {
         self.steps
     }
 
+    /// Reset the number of steps performed in the search.
     pub fn reset_steps(&mut self) {
         self.steps = 0;
     }
 
+    /// Get the search configuration for the environment.
     pub fn search_config_mut(&mut self) -> &mut SearchConfig<S> {
         &mut self.search_config
     }
-
-    pub fn rules(&self) -> &[Rule] {
-        &self.rules
-    }
-
+    
+    /// Supply a new search configuration for the environment.
     pub fn with_search_config(mut self, search_config: &SearchConfig<S>) -> Self {
         self.search_config = search_config.clone();
         self
     }
 
+    /// Get the variables used in the environment.
     pub fn used_vars(&self, vars: &mut HashSet<Var>) {
         for term in self.var_bindings.values() {
             term.used_vars(vars);
@@ -290,6 +416,9 @@ impl<S> Env<S> where S: Solver {
         }
     }
 
+    /// Prune the environment, removing unused variables.
+    /// 
+    /// It takes the full, original query supplied by the user, and the current query that is being searched.
     pub fn prune(&mut self, original_query: &Query, query: &mut Query) {
         if !self.search_config.can_prune() {
             warn!("Pruning is disabled");
@@ -334,30 +463,41 @@ impl<S> Env<S> where S: Solver {
         // }
     }
 
+    /// Get the variable bindings for the environment.
     pub fn var_bindings(&self) -> &HashMap<Var, Term> {
         &self.var_bindings
     }
 
+    /// Get the mutable variable bindings for the environment.
     pub fn var_bindings_mut(&mut self) -> &mut HashMap<Var, Term> {
         Arc::make_mut(&mut self.var_bindings)
     }
 
+    /// Set a variable in the environment.
     pub fn set_var(&mut self, var: Var, term: Term) {
         Arc::make_mut(&mut self.var_bindings).insert(var, term);
     }
 
+    /// Get a variable from the environment.
     pub fn get_var(&self, var: Var) -> Option<&Term> {
         self.var_bindings.get(&var)
     }
 
+    /// Get the rules for the environment.
     pub fn get_rules(&self) -> &[Rule] {
         &self.rules
     }
 
+    /// Add a rule to the environment.
     pub fn add_rule(&mut self, rule: Rule) {
         Arc::make_mut(&mut self.rules).push(rule);
     }
 
+    /// Convert the bindings in this environment to a solution.
+    /// 
+    /// This will take all the variables in the query, and return the reduced bindings for those variables.
+    /// 
+    /// If there are variables in the query that are not bound, this will return an error with the set of unbound variables.
     pub fn to_full_solution(&self, original_query: &Query, final_query: &Query) -> Result<Solution, HashSet<Term>> {
         // Filter out the free variables that are not in the query
         let mut free_query_vars = HashSet::new();
@@ -382,6 +522,13 @@ impl<S> Env<S> where S: Solver {
         Ok(partial_solution)
     }
 
+    /// Convert the bindings in this environment to a partial solution.
+    /// 
+    /// This will take all the variables in the query, and return the reduced bindings for those variables.
+    /// 
+    /// If all the variables are bound, this is a full solution.
+    /// If there are variables in the query that are not bound, this will return the partial solution with
+    /// as many variables bound as possible.
     pub fn to_partial_solution(&self, original_query: &Query, final_query: &Query) -> Solution {
         let mut free_query_vars = HashSet::new();
         original_query.used_vars(&mut free_query_vars);
@@ -414,6 +561,7 @@ impl<S> Env<S> where S: Solver {
         Solution::new(original_query.clone(), final_query.clone(), bindings)
     }
 
+    /// Apply all the rules in the environment to the goal term, adding the new goals to the query.
     pub fn apply_rules(&mut self, goal: &Term, query: &mut Query) -> bool {
         let mut changed = false;
         for i in 0..self.rules.len() {
@@ -422,6 +570,13 @@ impl<S> Env<S> where S: Solver {
         changed
     }
 
+    /// Apply all the rules in the environment to all the goals query, adding the new goals to the query.
+    /// 
+    /// If the search configuration requires a head match,
+    /// the rules will be applied to the first goal in the query before applying them to the rest of the goals.
+    /// If the application fails, the rest of the goals will not be considered.
+    /// 
+    /// If the search configuration does not require a head match, the rules will always be applied to all the goals in the query.
     pub fn apply_rules_to_query(&mut self, query: &mut Query) -> bool {
         let mut new_query = query.clone();
         let mut changed = false;
@@ -431,11 +586,17 @@ impl<S> Env<S> where S: Solver {
                 debug!("Bailing out of rule application, head match required");
                 return false;
             }
+
+            if self.search_config.stop_after_first_goal && changed {
+                break;
+            }
         }
         *query = new_query;
         changed
     }
 
+    
+    /// Apply a rule to a goal term, adding the new goals to the query.
     pub fn apply_rule(&mut self, rule: usize, goal: &Term, query: &mut Query) -> bool {
         let rule = self.rules[rule].clone();
         // debug!("Applying rule {} to goal {} in query {}", rule, goal, query);
@@ -456,6 +617,13 @@ impl<S> Env<S> where S: Solver {
         changed
     }
 
+    /// Apply a rule to a query, adding the new goals to the query.
+    /// 
+    /// If the search configuration requires a head match,
+    /// the rule will be applied to the first goal in the query before applying it to the rest of the goals.
+    /// If the application fails, the rest of the goals will not be considered.
+    /// 
+    /// If the search configuration does not require a head match, the rule will always be applied to all the goals in the query.
     pub fn apply_rule_to_query(&mut self, rule: usize, query: &mut Query) -> bool {
         // let terms = query.goals().cloned().collect::<Vec<Term>>();
         let mut new_query = query.clone();
@@ -466,11 +634,19 @@ impl<S> Env<S> where S: Solver {
                 debug!("Bailing out of rule application, head match required");
                 return false;
             }
+
+            if self.search_config.stop_after_first_goal && changed {
+                break;
+            }
         }
         *query = new_query;
         changed
     }
 
+    /// Attempt to find a solution for the query using the search configuration.
+    /// 
+    /// If a solution is found, it will be returned.
+    /// If no solution is found, an error will be returned with the set of unbound variables.
     pub fn prove_true(&mut self, query: &Query) -> Result<Solution, HashSet<Term>> {
         // let solutions = self.find_solutions_dfs(&query, &query, 1, 0, &mut steps);
         // let solutions = self.find_solutions_bfs(&query, &query, 1);
@@ -510,6 +686,12 @@ impl<S> Env<S> where S: Solver {
          */
     }
 
+    /// Attempt to prove that the query is false using the search configuration.
+    /// 
+    /// If the query is false, it will be added to the set of proven false queries,
+    /// and the function will return `Ok(())`.
+    /// 
+    /// If the query is true, an error will be returned with the set of unsolved goals.
     pub fn prove_false(&mut self, query: &Query) -> Result<(), HashSet<Term>> {
         debug!("Proving false: {}", query);
         if self.proven_false.contains(query) {
@@ -618,113 +800,22 @@ impl<S> Env<S> where S: Solver {
     }
      */
 
+    /// Find solutions for the query using the given search configuration.
     pub fn find_solutions(&mut self, original_query: &Query) -> Result<HashSet<Solution>, HashSet<Term>> {
         match self.search_config.traversal {
             Traversal::DepthFirst => {
-                // let mut steps = 0;
-                // self.find_solutions_dfs(original_query, original_query, count, 0, &mut steps)
-                self.find_solutions_dfs_improved(original_query, original_query, self.search_config.solution_limit)
+                self.find_solutions_dfs(original_query, self.search_config.solution_limit)
             }
             Traversal::BreadthFirst => {
-                self.find_solutions_bfs(original_query, original_query, self.search_config.solution_limit)
+                self.find_solutions_bfs(original_query, self.search_config.solution_limit)
             }
         }
     }
 
-    fn find_solutions_dfs(&mut self, original_query: &Query, query: &Query, count: usize, depth: usize, total_steps: &mut usize) -> Result<HashSet<Solution>, HashSet<Term>> {
-        let mut solutions = HashSet::new();
-        let current_steps = *total_steps;
-
-        if query.is_ground_truth() {
-            let solution = self.to_full_solution(original_query, query)?;
-            solutions.insert(solution.clone());
-            debug!("Found solution #{}: {}", solutions.len(), solution);
-            self.solver.save_solutions(self.clone(), query.clone(), solutions.clone());
-            return Ok(solutions);
-        }
-
-        if !self.search_config.can_search_deeper(depth) {
-            warn!("Recursion limit reached, pruning query: {}", query);
-            return Ok(solutions);
-        }
-
-        if query.contains_contradiction() {
-            warn!("Query contains contradiction: {}", query);
-            return Ok(HashSet::new());
-        }
-
-
-        if let Some(memoized_solutions) = self.solver.use_saved_solutions(self, query) {
-            debug!("Using memoized solutions for query: {}", query);
-            return Ok(memoized_solutions);
-        }
-
-        let mut simplified_query = query.reduce(&self);
-        let mut simplified_env = self.clone();
-        if self.search_config.prune {
-            simplified_env.prune(original_query, &mut simplified_query);
-        }
-        simplified_query.remove_irreducible_negatives_in_place(&mut simplified_env);
-        // if simplified_query.remove_provable_complements(&mut simplified_env) {
-        //     error!("Absurdity detected in query: {}", simplified_query);
-        //     return Ok(HashSet::new());
-        // }
-
-        let mut current_search_width = 0;
-        for i in 0..self.rules.len() {
-            if solutions.len() >= count {
-                debug!("Breaking out of rule application loop, found {} solutions", solutions.len());
-                break;
-            }
-            
-            if !self.search_config.can_search_wider(current_search_width) {
-                debug!("Width limit reached, pruning query: {}", query);
-                break;
-            }
-
-            let mut tmp_env = simplified_env.clone();
-            let mut tmp_query = simplified_query.clone();
-
-            if tmp_env.apply_rule_to_query(i, &mut tmp_query) {
-                tmp_query.remove_irreducible_negatives_in_place(&mut tmp_env);
-                if self.search_config.prune {
-                    tmp_env.prune(original_query, &mut tmp_query);
-                }
-
-                debug!("Applying rule {} to query: {}", self.rules[i], tmp_query);
-                current_search_width += 1;
-                *total_steps += 1;
-                if *total_steps % 10 == 0 {
-                    debug!("Step {}: {query}", *total_steps);
-                    if tmp_query.remove_provable_complements(&mut tmp_env) {
-                        error!("Absurdity detected in query: {}", tmp_query);
-                        continue;
-                    }
-                }
-
-                let mut sub_solutions = tmp_env.find_solutions_dfs(original_query, &tmp_query, count, depth + 1, total_steps)?;
-                for sub_solution in sub_solutions.drain() {
-                    solutions.insert(sub_solution);
-                }
-            } else {
-                debug!("Could not apply rule {} to query: {}", self.rules[i], tmp_query);
-            }
-        }
-        self.steps = *total_steps;
-        if !solutions.is_empty() {
-            debug!("Found {} solutions for query after {} steps: {}", solutions.len(), self.steps - current_steps, query);
-        }
-
-        self.solver.save_solutions(self.clone(), query.clone(), solutions.clone());
-
-        Ok(solutions)
-    }
-
-    /// Perform a BFS search for solutions.
-    pub fn find_solutions_dfs_improved(
+    /// Perform a DFS search for solutions, using the given search configuration.
+    pub fn find_solutions_dfs(
         &mut self,
         original_query: &Query,
-        start_query: &Query,
         max_solutions: usize,
     ) -> Result<HashSet<Solution>, HashSet<Term>> {
         // Use a queue of states. Each state will be a tuple containing:
@@ -739,7 +830,7 @@ impl<S> Env<S> where S: Solver {
 
         // Initialize the queue with the starting state.
         // Depth = 0, current search width = 0 (or 1, depending on how you interpret width).
-        queue.push_back((self.clone(), start_query.clone(), 0_usize));
+        queue.push_back((self.clone(), original_query.clone(), 0_usize));
         let mut iterations_without_sorting = 0;
 
         while let Some((mut env, query, depth)) = queue.pop_back() {
@@ -765,7 +856,7 @@ impl<S> Env<S> where S: Solver {
 
             // -- Memoization check --
             if let Some(memoized_solutions) = self.solver.use_saved_solutions(&env, &query) {
-                info!("Using memoized solutions for query: {}", query);
+                debug!("Using memoized solutions for query: {}", query);
                 for sol in memoized_solutions {
                     solutions.insert(sol);
                 }
@@ -895,11 +986,10 @@ impl<S> Env<S> where S: Solver {
         }
     }
 
-    /// Perform a BFS search for solutions.
+    /// Perform a BFS search for solutions, using the given search configuration.
     pub fn find_solutions_bfs(
         &mut self,
         original_query: &Query,
-        start_query: &Query,
         max_solutions: usize,
     ) -> Result<HashSet<Solution>, HashSet<Term>> {
         // Use a queue of states. Each state will be a tuple containing:
@@ -914,7 +1004,7 @@ impl<S> Env<S> where S: Solver {
 
         // Initialize the queue with the starting state.
         // Depth = 0, current search width = 0 (or 1, depending on how you interpret width).
-        queue.push_back((self.clone(), start_query.clone(), 0_usize));
+        queue.push_back((self.clone(), original_query.clone(), 0_usize));
         let mut iterations_without_sorting = 0;
 
         while let Some((mut env, query, depth)) = queue.pop_front() {
@@ -941,7 +1031,7 @@ impl<S> Env<S> where S: Solver {
 
             // -- Memoization check --
             if let Some(memoized_solutions) = self.solver.use_saved_solutions(&env, &query) {
-                info!("Using memoized solutions for query: {}", query);
+                debug!("Using memoized solutions for query: {}", query);
                 for sol in memoized_solutions {
                     solutions.insert(sol);
                 }
@@ -1073,28 +1163,38 @@ impl<S> Env<S> where S: Solver {
 }
 
 
+/// A solution to a query.
+/// 
+/// This struct contains the original query, the final proved query, and the variable bindings.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Solution {
+    /// The original query that was given to the solver.
     pub original_query: Query,
+    /// The final query that was proved by the solver.
     pub final_query: Query,
+    /// The variable bindings that were found by the solver.
     pub var_bindings: BTreeMap<Var, Term>,
 }
 
 impl Solution {
+    /// Create a new solution with the given original query, final query, and variable bindings.
     pub fn new(original_query: Query, final_query: Query, var_bindings: impl IntoIterator<Item=(Var, Term)>) -> Self {
         Solution { original_query, final_query, var_bindings: var_bindings.into_iter().collect() }
     }
 
+    /// Check if the solution is complete, i.e., if the final query is a ground truth (contains no variables).
     pub fn is_complete(&self) -> bool {
         self.final_query.is_ground_truth()
     }
 
+    /// Substitute the variable bindings into a query.
     fn substitute_into_query(&self, query: &Query) -> Query {
         let mut new_query = query.clone();
         new_query.substitute(&self.var_bindings.clone().into_iter().collect());
         new_query
     }
 
+    /// Get the variable bindings for the solution.
     pub fn var_bindings(&self) -> &BTreeMap<Var, Term> {
         &self.var_bindings
     }
@@ -1113,6 +1213,27 @@ impl<S> From<Solution> for Env<S> where S: Solver {
     }
 }
 
+impl<S> Display for Env<S> where S: Solver {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
+        if self.rules.is_empty() {
+            write!(f, "No rules\n")?;
+        } else {
+            write!(f, "Rules:\n")?;
+            for (i, rule) in self.rules.iter().enumerate() {
+                write!(f, "{}. {}\n", i+1, rule)?;
+            }
+        }
+        if !self.var_bindings.is_empty() {
+            write!(f, "Variable bindings:\n")?;
+            for (var, term) in &*self.var_bindings {
+                write!(f, "{} = {}\n", var, term)?;
+            }
+        } else {
+            write!(f, "No variable bindings\n")?;
+        }
+        Ok(())
+    }
+}
 impl Display for Solution {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
         write!(f, "Solution for query: {}\n", self.original_query)?;
@@ -1128,7 +1249,7 @@ impl Display for Solution {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::solvers::*;
+    use tracing::{info, error};
 
     fn time_it<F: FnMut() -> R, R>(mut f: F) -> (R, std::time::Duration) {
         let start = std::time::Instant::now();
@@ -1166,7 +1287,7 @@ mod test {
 
         // let query: Query = format!("?- ~add(A, A, s(s(s(s(0))))), add(A, B, C), leq(A, s(s(s(0)))), leq(B, s(s(s(0)))), leq(C, s(s(s(s(0))))).").parse().unwrap();
         // let mut query: Query = format!(r#"?- neq(A, s(0)), mul(A, B, {n})."#).parse().unwrap();
-        let mut query: Query = format!(r#"?- mul({n}, {n}, A)."#).parse().unwrap();
+        let query: Query = format!(r#"?- mul({n}, {n}, A)."#).parse().unwrap();
             
         // let query: Query = "?- neq(A, s(0)), neq(B, s(0)), mul(A, B, s(s(s(s(0))))).".parse().unwrap();
         // let query: Query = "?- isprime(X, Y, s(s(s(0)))).".parse().unwrap();
@@ -1236,7 +1357,7 @@ mod test {
         ];
 
         let mut query: Query = "?- f(X).".parse().unwrap();
-        let mut old_query = query.clone();
+        let old_query = query.clone();
 
         let mut env = Env::<DefaultSolver>::new(&rules);
         println!("{:?}", query);
@@ -1265,7 +1386,6 @@ mod test {
 
 
         let mut query: Query = "?- f(X), f(2).".parse().unwrap();
-        let mut old_query = query.clone();
         env.apply_rules_to_query(&mut query);
     }
 
@@ -1279,7 +1399,7 @@ mod test {
             "i(1).".parse().unwrap(),
         ];
 
-        let mut query: Query = "?- f(1).".parse().unwrap();
+        let query: Query = "?- f(1).".parse().unwrap();
 
         let mut env = Env::<DefaultSolver>::new(&rules);
         println!("{:?}", query);

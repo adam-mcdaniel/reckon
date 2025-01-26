@@ -1,20 +1,17 @@
-use std::collections::{BTreeMap, HashSet};
-
 use super::*;
 
 use nom::{
     branch::alt,
-    bytes::complete::{escaped, is_not, tag, take_while, take_while1, take_while_m_n},
-    character::complete::{alphanumeric1, char, multispace0, multispace1, one_of},
+    bytes::complete::{is_not, tag, take_while1, take_while_m_n},
+    character::complete::{char, multispace0, multispace1, one_of},
     combinator::{cut, map, map_opt, map_res, opt, value, verify},
     error::{FromExternalError, ParseError},
-    multi::{fold_many0, fold_many1, fold_many_m_n, separated_list0, separated_list1},
-    sequence::{delimited, preceded, separated_pair, terminated, tuple},
+    multi::{fold_many0, separated_list0, separated_list1},
+    sequence::{delimited, preceded, tuple},
     IResult, Parser,
 };
 
 use crate::{
-    var, // helper for building Var-based Terms
     AppTerm,
     Query,
     Rule,
@@ -534,6 +531,7 @@ pub fn parse_search_config<'a, 'b, S>(i: &'a str, existing_config: &'b mut Searc
                     "require_rule_head_match" => config.with_require_rule_head_match(value),
                     "reduce_query" => config.with_reduce_query(value),
                     "clean_memoization" => config.with_clean_memoization(value),
+                    "stop_after_first_goal" => config.with_stop_after_first_goal(value),
                     _ => {
                         return Err(nom::Err::Error(nom::error::VerboseError {
                             errors: vec![(

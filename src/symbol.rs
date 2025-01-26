@@ -10,7 +10,7 @@ use std::{
     fmt::{Debug, Display, Formatter, Result as FmtResult},
     // Import hash types and traits for hashing our expressions,
     // to allow them to be used as keys in a hash map.
-    hash::{Hash, Hasher},
+    hash::Hash,
     // Import the string parsing trait for parsing symbols from strings.
     str::FromStr,
     // Import atomic reference counting for shared ownership of symbols,

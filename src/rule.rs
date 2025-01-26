@@ -1,7 +1,16 @@
 use super::*;
 use std::collections::{HashMap, HashSet};
-use tracing::{debug, instrument};
 
+use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
+use std::hash::Hash;
+use std::str::FromStr;
+use tracing::debug;
+
+/// A rule in the logic program.
+/// 
+/// A rule is a head term, followed by a list of tail terms.
+/// 
+/// The rule is true if the head is true, and all the tail terms are true.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Rule {
     /// The head of the rule
@@ -13,6 +22,9 @@ pub struct Rule {
 }
 
 impl Rule {
+    /// Define a fact, which is a rule with no conditions.
+    /// 
+    /// This rule is treated as always true by the solver.
     pub fn fact(head: impl ToString, args: Vec<Term>) -> Self {
         Rule {
             head: AppTerm::new(head, args).into(),
@@ -20,6 +32,15 @@ impl Rule {
         }
     }
 
+    /// Apply a rule to a term in an environment.
+    /// 
+    /// The `original_term` is the term that the rule is being applied to.
+    /// 
+    /// The query is passed to allow the rule to insert the new goals, which
+    /// then must be proven by the solver for the rule to be considered true.
+    /// 
+    /// The environment is passed to allow the rule to perform unification,
+    /// and to allow the rule to prove complements false.
     pub fn apply<S>(&self, original_term: &Term, query: &mut Query, env: &mut Env<S>) -> bool where S: Solver {
         if !self.might_apply_to(original_term) {
             return false;
@@ -109,6 +130,14 @@ impl Rule {
         }
     }
 
+    /// Might this rule apply to a term?
+    /// 
+    /// If the term is an application, and the function name and arity match, then
+    /// the rule might apply.
+    /// If the function name and arity do not match, then the rule cannot apply.
+    /// 
+    /// If the term is not an application, then the rule might apply.
+    /// The term might be a variable, for example, which could be unified with the head of the rule.
     pub fn might_apply_to(&self, term: &Term) -> bool {
         match (&self.head, term) {
             (Term::App(app1), Term::App(app2)) => {
@@ -118,6 +147,10 @@ impl Rule {
         }
     }
 
+    /// Is this rule recursive?
+    /// A rule is recursive if any of the following are true:
+    /// 1. The arguments of the head contain an application of the head function
+    /// 2. The tail contains an application of the head function
     pub fn is_recursive(&self) -> bool {
         match self.head {
             Term::App(ref app) => {
@@ -128,6 +161,12 @@ impl Rule {
         }
     }
 
+    /// Is this rule invalid?
+    /// 
+    /// A rule is invalid if all the arguments of the head are variables (no progress can be made by the head matching),
+    /// and all the terms in the tail contain an application of the head function.
+    /// 
+    /// This is invalid because the rule will never be able to make progress, and will always be stuck in a loop.
     pub fn is_invalid(&self) -> bool {
         match self.head {
             Term::App(ref app) => {
@@ -142,13 +181,18 @@ impl Rule {
         }
     }
 
+    /// Get the size of the rule.
+    /// 
+    /// The size of a rule is the sum of the sizes of the head and the tail terms.
     pub fn size(&self) -> usize {
         self.head.size() + self.tail.iter().map(|term| term.size()).sum::<usize>()
     }
 
-    /// Constrain a rule by adding a term to the tail
+    /// Constrain a rule by adding a term to the tail.
+    /// 
+    /// This makes the head of the rule *only true* if this condition is also true.
     pub fn when(mut self, head: impl ToString, args: Vec<Term>) -> Self {
-        self.tail.push(app!(head, args));
+        self.tail.push(AppTerm::new(head, args).into());
         self
     }
     /*
@@ -174,6 +218,10 @@ impl Rule {
     }
      */
 
+     /// Refresh all the variables in the rule.
+     /// 
+     /// This is useful when the rule is being applied to a term, and we don't want to accidentally
+     /// have name collisions with the variables in the term.
     pub fn refresh(&mut self) {
         // Gather all variables
         let mut vars_in_rule = HashSet::new();
@@ -196,6 +244,9 @@ impl Rule {
         }
     }
 
+    /// Refresh only the variables in the rule that are in the set of variables to refresh.
+    /// 
+    /// This is useful when we want to avoid refreshing variables unnecessarily.
     pub fn refresh_variables(&mut self, variables_to_refresh: HashSet<Var>) {
         // Gather all variables
         let mut vars_in_rule = HashSet::new();
@@ -220,7 +271,7 @@ impl Rule {
         }
     }
 
-
+    /// Substitute all the variables in the rule with the given bindings.
     pub fn substitute(&mut self, bindings: &HashMap<Var, Term>) {
         self.head.substitute(bindings);
         for term in self.tail.iter_mut() {
@@ -311,9 +362,9 @@ mod test {
             "is_nat(s(X)) :- is_nat(X).".parse().unwrap(),
         ];
 
-        let mut query: Query = "?- ~is_nat(s(s(s(0)))).".parse().unwrap();
+        let query: Query = "?- ~is_nat(s(s(s(0)))).".parse().unwrap();
 
-        let mut env = Env::<DefaultSolver>::new(&rules);
+        let env = Env::<DefaultSolver>::new(&rules);
 
         // env.apply_rules_to_query(&mut query);
         // env.apply_rules_to_query(&mut query);
