@@ -710,18 +710,18 @@ impl Display for Term {
             Term::False => write!(f, "false"),
             Term::Str(s) => write!(f, "{}", s),
             Term::Cons(head, tail) => {
-                // write!(f, "[{:?}|{:?}]", head, tail)
-                write!(f, "[{}", head)?;
-                let mut tail = tail.as_ref();
-                while let Term::Cons(head, x) = tail {
-                    write!(f, ", {}", head)?;
-                    tail = x;
-                }
-                if let Term::Nil = tail {
-                    write!(f, "]")
-                } else {
-                    write!(f, ",{}]", tail)
-                }
+                write!(f, "[{}|{}]", head, tail)
+                // write!(f, "[{}", head)?;
+                // let mut tail = tail.as_ref();
+                // while let Term::Cons(head, x) = tail {
+                //     write!(f, ", {}", head)?;
+                //     tail = x;
+                // }
+                // if let Term::Nil = tail {
+                //     write!(f, "]")
+                // } else {
+                //     write!(f, ",{}]", tail)
+                // }
             }
             // Term::Set(terms) => {
             //     write!(f, "{{")?;

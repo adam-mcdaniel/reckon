@@ -50,7 +50,7 @@ impl Rule {
             if negated && self.tail.is_empty() {
                 // Then the negation fails, because the head is true.
                 // Add false to the query's goals.
-                error!("{original_term} is absurd by rule {self}.");
+                debug!("{original_term} is absurd by rule {self}.");
                 query.remove_goal(&original_term);
                 query.add_positive_goal(Term::False);
                 query.reduce_in_place(&new_env);
@@ -84,13 +84,13 @@ impl Rule {
 
             if negated && !can_prove_one_false {
                 // info!("Negation failed");
-                error!("{original_term} is absurd, could not prove antecedents.");
+                debug!("{original_term} is absurd, could not prove antecedents.");
                 query.add_positive_goal(Term::False);
                 query.reduce_in_place(&new_env);
                 *env = new_env;
                 return true;
             } else if negated {
-                info!("{original_term} is true by rule {self}.");
+                debug!("{original_term} is true by rule {self}.");
             }
 
             // query.reduce_in_place(&new_env);
@@ -306,11 +306,6 @@ mod test {
 
     #[test]
     fn test_application2() {
-        // Set up logging with the `tracing` crate, with debug level logging.
-        let _ = tracing_subscriber::fmt::SubscriberBuilder::default()
-            .with_max_level(tracing::Level::DEBUG)
-            .init();
-        
         let rules: Vec<Rule> = vec![
             "is_nat(0).".parse().unwrap(),
             "is_nat(s(X)) :- is_nat(X).".parse().unwrap(),
@@ -332,11 +327,6 @@ mod test {
 
     #[test]
     fn test_application3() {
-        // Set up logging with the `tracing` crate, with debug level logging.
-        let _ = tracing_subscriber::fmt::SubscriberBuilder::default()
-            .with_max_level(tracing::Level::INFO)
-            .init();
-        
         let rules: Vec<Rule> = vec![
             "is_nat(0).".parse().unwrap(),
             "is_nat(s(X)) :- is_nat(X).".parse().unwrap(),
@@ -374,12 +364,6 @@ mod test {
 
     #[test]
     fn test_nested_application2() {
-
-        // Set up logging with the `tracing` crate, with debug level logging.
-        let _ = tracing_subscriber::fmt::SubscriberBuilder::default()
-            .with_max_level(tracing::Level::DEBUG)
-            .init();
-        
         let rules: Vec<Rule> = vec![
             "is_nat(0).".parse().unwrap(),
             "is_nat(s(X)) :- is_nat(X).".parse().unwrap(),

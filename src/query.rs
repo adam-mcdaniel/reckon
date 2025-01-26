@@ -147,8 +147,12 @@ impl Query {
         Query::new(result).reduce(env)
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.goals.is_empty()
+    }
+
     pub fn is_ground_truth(&self) -> bool {
-        if self.goals.is_empty() {
+        if self.is_empty() {
             return true;
         }
     

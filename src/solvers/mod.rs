@@ -27,6 +27,10 @@ pub trait Solver: Default + Clone + Debug + Eq {
     //     // Do nothing by default
     // }
 
+    fn reset(&mut self) {
+        // Do nothing by default
+    }
+
     fn save_rule_application(&mut self, env: Env<Self>, before_query: &Query, new_env: Env<Self>, new_query: &Query) {
         // Do nothing by default
     }
@@ -49,6 +53,25 @@ pub struct DefaultSolver;
 impl Solver for DefaultSolver {}
 
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
+pub struct QuickMemoizingSolver {
+    pub memoized_solutions: HashMap<Query, HashSet<Solution>>,
+}
+
+impl Solver for QuickMemoizingSolver {
+    fn reset(&mut self) {
+        self.memoized_solutions.clear();
+    }
+
+    fn save_solutions(&mut self, env: Env<Self>, query: Query, solutions: HashSet<Solution>) {
+        self.memoized_solutions.insert(query, solutions);
+    }
+
+    fn use_saved_solutions(&self, env: &Env<Self>, query: &Query) -> Option<HashSet<Solution>> {
+        self.memoized_solutions.get(query).cloned()
+    }
+}
+
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct MemoizingSolver {
     pub memoized_applications: HashMap<(Env<Self>, Query), (Env<Self>, Query)>,
     pub memoized_solutions: HashMap<(Env<Self>, Query), HashSet<Solution>>,
@@ -57,19 +80,24 @@ pub struct MemoizingSolver {
 impl MemoizingSolver {
     pub fn canonize_application_key(&self, env: &mut Env<Self>, query: &mut Query) {
         // Substitute all variables in the query with their values in the environment
-        env.prune_redundant_variables();
-        query.reduce_in_place(env);
+        // env.prune_redundant_variables();
+        // query.reduce_in_place(env);
     }
 
     pub fn canonize_solution_key(&self, env: &mut Env<Self>, query: &mut Query) {
         // Substitute all variables in the solution with their values in the environment
-        let new_vars = env.prune_redundant_variables();
-        query.substitute(&new_vars);
-        query.reduce_in_place(env);
+        // let new_vars = env.prune_redundant_variables();
+        // query.substitute(&new_vars);
+        // query.reduce_in_place(env);
     }
 }
 
 impl Solver for MemoizingSolver {
+    fn reset(&mut self) {
+        self.memoized_applications.clear();
+        self.memoized_solutions.clear();
+    }
+
     fn save_rule_application(&mut self, env: Env<Self>, before_query: &Query, new_env: Env<Self>, new_query: &Query) {
 
         // let mut before_query = before_query.clone();

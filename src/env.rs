@@ -39,6 +39,7 @@ pub struct SearchConfig<S> where S: Solver {
     pub sort_after_steps: usize,
     pub reduce_query: bool,
     pub solution_limit: usize,
+    pub clean_memoization: bool,
 }
 
 
@@ -73,6 +74,7 @@ impl<S> SearchConfig<S> where S: Solver {
             sort_after_steps: 1,
             reduce_query: true,
             solution_limit: 1,
+            clean_memoization: false,
         }
     }
 
@@ -91,6 +93,11 @@ impl<S> SearchConfig<S> where S: Solver {
 
     pub fn with_traversal(mut self, traversal: Traversal) -> Self {
         self.traversal = traversal;
+        self
+    }
+
+    pub fn with_clean_memoization(mut self, clean_memoization: bool) -> Self {
+        self.clean_memoization = clean_memoization;
         self
     }
 
@@ -123,9 +130,15 @@ impl<S> SearchConfig<S> where S: Solver {
         self.sort_after_steps = after_steps;
         self.queue_sorter = Some(Arc::new(
             move |queue: &mut VecDeque<(Env<S>, Query, usize)>| {
-                queue.make_contiguous().sort_by_key(|(env, query, _)| {
+                let queue = queue.make_contiguous();
+                queue.sort_by_key(|(env, query, _)| {
                     sorter(env, query)
-                })
+                });
+
+                match self.traversal {
+                    Traversal::DepthFirst => queue.reverse(),
+                    Traversal::BreadthFirst => (),
+                }
             }
         ));
         self
@@ -166,6 +179,7 @@ impl<S> Default for SearchConfig<S> where S: Solver {
             .with_depth_limit(300)
             .with_require_rule_head_match(true)
             .with_width_limit(5)
+            .with_clean_memoization(true)
     }
 }
 
@@ -209,6 +223,14 @@ impl<S> Env<S> where S: Solver {
             proven_false: HashSet::new(),
             steps: 0,
         }
+    }
+
+    pub fn get_steps(&self) -> usize {
+        self.steps
+    }
+
+    pub fn reset_steps(&mut self) {
+        self.steps = 0;
     }
 
     pub fn search_config_mut(&mut self) -> &mut SearchConfig<S> {
@@ -735,6 +757,22 @@ impl<S> Env<S> where S: Solver {
                 break;
             }
 
+            // -- Depth limit check (if your config enforces it) --
+            if !env.search_config.can_search_deeper(depth) {
+                warn!("Depth limit reached for query: {}", query);
+                continue;
+            }
+
+            // -- Memoization check --
+            if let Some(memoized_solutions) = self.solver.use_saved_solutions(&env, &query) {
+                info!("Using memoized solutions for query: {}", query);
+                for sol in memoized_solutions {
+                    solutions.insert(sol);
+                }
+                // Continue BFS; maybe you want to skip expansions here or not.
+                continue;
+            }
+            
             // -- Ground truth check --
             if query.is_ground_truth() {
                 let solution = match env.to_full_solution(original_query, &query) {
@@ -750,30 +788,14 @@ impl<S> Env<S> where S: Solver {
                 solutions.insert(solution.clone());
 
                 // Save solutions using the memoization layer (if appropriate).
-                env.solver.save_solutions(env.clone(), query.clone(), solutions.clone());
+                self.solver.save_solutions(env.clone(), query.clone(), solutions.clone());
                 // Continue BFS to find more solutions (or break if you only need the first).
-                continue;
-            }
-
-            // -- Depth limit check (if your config enforces it) --
-            if !env.search_config.can_search_deeper(depth) {
-                warn!("Depth limit reached for query: {}", query);
                 continue;
             }
 
             // -- Contradiction check --
             if query.contains_contradiction() {
                 // warn!("Query contains contradiction: {}", query);
-                continue;
-            }
-
-            // -- Memoization check --
-            if let Some(memoized_solutions) = env.solver.use_saved_solutions(&env, &query) {
-                debug!("Using memoized solutions for query: {}", query);
-                for sol in memoized_solutions {
-                    solutions.insert(sol);
-                }
-                // Continue BFS; maybe you want to skip expansions here or not.
                 continue;
             }
 
@@ -855,8 +877,13 @@ impl<S> Env<S> where S: Solver {
             }
 
             // -- Save solutions if any were found at this node --
-            env.solver.save_solutions(env.clone(), query.clone(), solutions.clone());
+            self.solver.save_solutions(env, query, solutions.clone());
         } // end of while queue is not empty
+
+        if self.search_config.clean_memoization {
+            self.solver.reset();
+        }
+        self.solver.save_solutions(self.clone(), original_query.clone(), solutions.clone());
         self.steps = total_steps;
 
         if !solutions.is_empty() {
@@ -905,6 +932,23 @@ impl<S> Env<S> where S: Solver {
                 break;
             }
 
+
+            // -- Depth limit check (if your config enforces it) --
+            if !env.search_config.can_search_deeper(depth) {
+                warn!("Depth limit reached for query: {}", query);
+                continue;
+            }
+
+            // -- Memoization check --
+            if let Some(memoized_solutions) = self.solver.use_saved_solutions(&env, &query) {
+                info!("Using memoized solutions for query: {}", query);
+                for sol in memoized_solutions {
+                    solutions.insert(sol);
+                }
+                // Continue BFS; maybe you want to skip expansions here or not.
+                continue;
+            }
+
             // -- Ground truth check --
             if query.is_ground_truth() {
                 let solution = match env.to_full_solution(original_query, &query) {
@@ -920,30 +964,14 @@ impl<S> Env<S> where S: Solver {
                 solutions.insert(solution.clone());
 
                 // Save solutions using the memoization layer (if appropriate).
-                env.solver.save_solutions(env.clone(), query.clone(), solutions.clone());
+                self.solver.save_solutions(env.clone(), query.clone(), solutions.clone());
                 // Continue BFS to find more solutions (or break if you only need the first).
                 continue;
             }
-
-            // -- Depth limit check (if your config enforces it) --
-            if !env.search_config.can_search_deeper(depth) {
-                warn!("Depth limit reached for query: {}", query);
-                continue;
-            }
-
+            
             // -- Contradiction check --
             if query.contains_contradiction() {
                 // warn!("Query contains contradiction: {}", query);
-                continue;
-            }
-
-            // -- Memoization check --
-            if let Some(memoized_solutions) = env.solver.use_saved_solutions(&env, &query) {
-                debug!("Using memoized solutions for query: {}", query);
-                for sol in memoized_solutions {
-                    solutions.insert(sol);
-                }
-                // Continue BFS; maybe you want to skip expansions here or not.
                 continue;
             }
 
@@ -1024,10 +1052,14 @@ impl<S> Env<S> where S: Solver {
                 //     query
                 // );
             }
-
+            
             // -- Save solutions if any were found at this node --
-            env.solver.save_solutions(env.clone(), query.clone(), solutions.clone());
+            self.solver.save_solutions(env, query, solutions.clone());
         } // end of while queue is not empty
+        if self.search_config.clean_memoization {
+            self.solver.reset();
+        }
+        self.solver.save_solutions(self.clone(), original_query.clone(), solutions.clone());
         self.steps = total_steps;
 
         if !solutions.is_empty() {
@@ -1106,19 +1138,7 @@ mod test {
     }
 
     #[test]
-    fn test_prove_multiplication_helper() {
-        // Set the stack size then call the main test function
-        std::thread::Builder::new().stack_size(500 * 1024 * 1024).spawn(test_prove_multiplication).unwrap().join().unwrap();
-
-    }
-
-    #[test]
     fn test_prove_multiplication() {
-        // Set up logging with the `tracing` crate, with debug level logging.
-        let _ = tracing_subscriber::fmt::SubscriberBuilder::default()
-            .with_max_level(tracing::Level::INFO)
-            .init();
-        
         let rules: Vec<Rule> = vec![
             "is_nat(s(X)) :- is_nat(X).".parse().unwrap(),
             "is_nat(0).".parse().unwrap(),
