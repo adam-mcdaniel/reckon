@@ -5,7 +5,7 @@ use std::{
     // BTreeMap is used for tree expressions, which are ordered maps.
     // HashMap is used for map expressions, which are unordered maps,
     // and for the symbol table plus environment bindings.
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     // Import the necessary types and traits for formatting our output.
     fmt::{Debug, Display, Formatter, Result as FmtResult},
     // Import hash types and traits for hashing our expressions,
@@ -60,8 +60,8 @@ fn new_symbol(name: &str) -> (Symbol, u64) {
 
     // Create a new ID for the symbol
     let mut id_counter = ID_COUNTER.write().unwrap();
-    let id = *id_counter;
     *id_counter += 1;
+    let id = *id_counter;
 
     symbol_to_id.insert(symbol.clone(), id);
     id_to_symbol.insert(id, symbol.clone());
@@ -82,6 +82,11 @@ impl Symbol {
         new_symbol(name).0
     }
 
+    pub fn already_exists(name: &str) -> bool {
+        let symbols = SYMBOLS.read().unwrap();
+        symbols.contains_key(name)
+    }
+
     pub fn id(&self) -> u64 {
         let name = self.0.clone();
         let ids = SYMBOL_ID.read().unwrap();
@@ -89,9 +94,19 @@ impl Symbol {
         *ids.get(name_str).unwrap()
     }
 
+    pub fn unused_id() -> u64 {
+        let mut id_counter = ID_COUNTER.write().unwrap();
+        *id_counter += 1;
+        let id = *id_counter;
+        id
+    }
+
     pub fn from_id(id: u64) -> Self {
         let id_to_symbol = ID_SYMBOL.read().unwrap();
-        id_to_symbol.get(&id).unwrap().clone()
+        if let Some(symbol) = id_to_symbol.get(&id) {
+            return symbol.clone();
+        }
+        panic!("Symbol with ID {} does not exist", id);
     }
 
     /// Get the name of the symbol as a string

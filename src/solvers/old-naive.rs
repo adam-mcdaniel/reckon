@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, HashSet};
 
 use crate::{solvers::{Solver, SolutionScorer, DefaultSolutionScorer}, term, Query, Rule, Term, Var};
 use tracing::{info, warn, debug, error};
@@ -38,7 +38,7 @@ impl NaiveSolver {
         scorer: &impl SolutionScorer,
         recursive_depth: usize,
         mut solutions_limit: &mut isize,
-        unique_solutions: &mut BTreeSet<BTreeMap<Var, Term>>,
+        unique_solutions: &mut HashSet<BTreeMap<Var, Term>>,
     ) {
         // 1. If no goals remain, we've satisfied them all. Add the current bindings as a solution.
         if goals.is_empty() {
@@ -111,19 +111,19 @@ impl NaiveSolver {
 
 fn simplify_term(term: &Term, solution: &BTreeMap<Var, Term>) -> (Term, bool) {
     // Get the free variables of the goal
-    let mut free_vars = BTreeSet::new();
-    term.free_vars(&mut free_vars);
+    let mut used_vars = HashSet::new();
+    term.used_vars(&mut used_vars);
 
     let mut new_term = term.clone();
 
     // For every variable in the term to simplify,
     // replace it with the corresponding term in the solution.
-    for var in free_vars {
+    for var in used_vars {
         if let Some(substitute) = solution.get(&var) {
             new_term.substitute_var(var, substitute.clone());
         }
     }
-    let is_simplified = new_term.has_free_vars();
+    let is_simplified = new_term.has_used_vars();
     (new_term, is_simplified)
 }
 
@@ -157,9 +157,9 @@ fn simplify_solutions(solutions: Vec<BTreeMap<Var, Term>>) -> Vec<BTreeMap<Var, 
 
 fn prune_solution(goals: &[Term], solution: &mut BTreeMap<Var, Term>) {
     // Remove irrelevant bindings
-    let mut relevant_vars = BTreeSet::new();
+    let mut relevant_vars = HashSet::new();
     for goal in goals.iter() {
-        goal.free_vars(&mut relevant_vars);
+        goal.used_vars(&mut relevant_vars);
     }
     
     solution.retain(|var, _| relevant_vars.contains(var));
@@ -176,7 +176,7 @@ impl Solver for NaiveSolver {
     /// Returns an error if no solutions are found (i.e., the query is unprovable).
     fn solve_vars(&mut self, query: &Query, scorer: &impl SolutionScorer, max_solutions: usize) -> Result<Vec<BTreeMap<Var, Term>>, String> {
         // Start with empty bindings.
-        let mut unique_solutions = BTreeSet::new();
+        let mut unique_solutions = HashSet::new();
         self.solve_goals(&query.goals, &query.goals, BTreeMap::new(), scorer, 0, &mut (max_solutions as isize), &mut unique_solutions);
 
         // If no solutions are found, return an error.

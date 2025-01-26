@@ -1,5 +1,5 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
-use crate::{Query, Rule, Solution, Solver, Term, UnifyEnv, Var};
+use std::collections::{BTreeMap, HashSet, HashMap};
+use crate::{Query, Rule, Solution, Solver, Term, Env, Var};
 use tracing::*;
 
 /// A simple DFS solver with memoization
@@ -8,9 +8,9 @@ pub struct DfsSolver {
     pub rules: Vec<Rule>,
     /// The memo table maps:
     /// (goals_after_substitution, sorted_bindings) -> Vec of solutions (each is a binding)
-    pub memo: HashMap<(Vec<Term>, UnifyEnv), BTreeSet<Solution>>,
+    pub memo: HashMap<(Vec<Term>, Env), HashSet<Solution>>,
     pub max_recursion_limit: usize,
-    pub full_solutions: BTreeSet<Solution>,
+    pub full_solutions: HashSet<Solution>,
     pub steps: usize,
 }
 
@@ -35,16 +35,16 @@ impl DfsSolver {
         &mut self,
         query: &Query,
         goals: &[Term],
-        env: &UnifyEnv,
+        env: &Env,
         max_solutions: usize,
         mut recursion_depth: usize,
         recursion_limit: usize,
         hit_recursion_limit: &mut bool,
-    ) -> BTreeSet<Solution> {
+    ) -> HashSet<Solution> {
         recursion_depth += 1;
         if recursion_depth > recursion_limit {
             *hit_recursion_limit = true;
-            return BTreeSet::new();
+            return HashSet::new();
         }
 
         // If no goals remain, we have a complete solution:
@@ -67,14 +67,14 @@ impl DfsSolver {
             } else {
                 // info!("Found partial solution: {env:?}");
             }
-            let mut solutions = BTreeSet::new();
+            let mut solutions = HashSet::new();
             solutions.insert(env.to_partial_solution(query));
             return solutions;
         }
 
         // If the goals contains false
         if goals.iter().any(|g| matches!(g, Term::False)) {
-            return BTreeSet::new();
+            return HashSet::new();
         }
 
         // Apply current bindings to get canonical "substituted" goals
@@ -107,7 +107,7 @@ impl DfsSolver {
             return solutions_after_cut;
         }
 
-        let mut all_solutions = BTreeSet::new();
+        let mut all_solutions = HashSet::new();
 
 
         let mut env = env.clone();
@@ -187,7 +187,7 @@ impl Solver for DfsSolver {
         &mut self,
         query: &Query,
         max_solutions: usize,
-    ) -> Result<BTreeSet<Solution>, String> {
+    ) -> Result<HashSet<Solution>, String> {
         self.full_solutions.clear();
         self.steps = 0;
 
@@ -200,11 +200,11 @@ impl Solver for DfsSolver {
         }
         
         // We start with an empty binding environment
-        let env = UnifyEnv::new(&self.rules, &[query.clone()]);
+        let env = Env::new(&self.rules, &[query.clone()]);
         let mut hit_recursion_limit = false;
         let mut recursion_limit = 50;
 
-        let mut partial_solutions = BTreeSet::new();
+        let mut partial_solutions = HashSet::new();
         while self.full_solutions.len() < max_solutions {
             info!("Trying {query:?} with recursion limit: {}", recursion_limit);
             if recursion_limit > self.max_recursion_limit {
@@ -337,5 +337,10 @@ mod test {
         prove_true(&rules, "?- not(false).");
         prove_false(&rules, "?- not(true).");
         prove_true(&rules, "?- ^ [true, true].");
+    }
+
+
+    #[test]
+    fn test_sudoku() {
     }
 }

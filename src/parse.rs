@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, HashSet};
 
 use super::*;
 
@@ -35,11 +35,16 @@ where
 // --- Base parsers for atoms ---
 
 /// Parse an integer (i64). e.g. "-42", "123"
-fn parse_int(i: &str) -> IResult<&str, Term, Error> {
+fn parse_int(i: &str) -> IResult<&str, i64, Error> {
     // 1. Optional sign
     // 2. Some digits
     let (i, num_str) = ws(map_res(recognize_sign_digits, |s: &str| s.parse::<i64>()))(i)?;
-    Ok((i, Term::Int(num_str)))
+    Ok((i, num_str))
+}
+
+fn parse_int_term(i: &str) -> IResult<&str, Term, Error> {
+    let (i, num) = parse_int(i)?;
+    Ok((i, Term::Int(num)))
 }
 
 /// Recognize optional sign plus digits (used by parse_int).
@@ -54,12 +59,22 @@ fn recognize_sign_digits(i: &str) -> IResult<&str, &str, Error> {
 }
 
 /// Parse a boolean: `true` or `false`.
-fn parse_bool(i: &str) -> IResult<&str, Term, Error> {
+fn parse_bool(i: &str) -> IResult<&str, bool, Error> {
     alt((
-        value(Term::True, ws(tag("true"))),
-        value(Term::False, ws(tag("false"))),
+        value(true, ws(tag("true"))),
+        value(false, ws(tag("false"))),
     ))(i)
 }
+
+fn parse_bool_term(i: &str) -> IResult<&str, Term, Error> {
+    let (i, b) = parse_bool(i)?;
+    Ok((i, if b {
+        Term::True
+    } else {
+        Term::False
+    }))
+}
+
 
 /// Parse `nil`.
 fn parse_nil(i: &str) -> IResult<&str, Term, Error> {
@@ -68,30 +83,9 @@ fn parse_nil(i: &str) -> IResult<&str, Term, Error> {
 
 /// Parse the cut symbol `#`.
 fn parse_cut(i: &str) -> IResult<&str, Term, Error> {
-    value(Term::Cut, ws(tag("#")))(i)
+    value(Term::Cut, ws(tag("!")))(i)
 }
 
-/// `tag(string)` generates a parser that recognizes the argument string.
-///
-/// we can combine it with other functions, like `value` that takes another
-/// parser, and if that parser returns without an error, returns a given
-/// constant value.
-///
-/// `alt` is another combinator that tries multiple parsers one by one, until
-/// one of them succeeds
-fn boolean<'a, E: ParseError<&'a str>>(input: &'a str) -> IResult<&'a str, bool, E> {
-    // This is a parser that returns `true` if it sees the string "true", and
-    // an error otherwise
-    let parse_true = value(true, tag("true"));
-
-    // This is a parser that returns `false` if it sees the string "false", and
-    // an error otherwise
-    let parse_false = value(false, tag("false"));
-
-    // `alt` combines the two parsers. It returns the result of the first
-    // successful parser, or an error
-    alt((parse_true, parse_false)).parse(input)
-}
 // parser combinators are constructed from the bottom up:
 // first we write parsers for the smallest elements (escaped characters),
 // then combine them into larger parsers.
@@ -236,6 +230,11 @@ where
     delimited(char('"'), build_string, char('"')).parse(input)
 }
 
+fn parse_string_term(i: &str) -> IResult<&str, Term, Error> {
+    let (i, s) = parse_string(i)?;
+    Ok((i, Term::Str(s)))
+}
+
 /// Parse a variable token: starts with uppercase or underscore, followed by alphanums or `_`.
 /// Example: `X`, `User42`, `_foo`.
 fn parse_var(i: &str) -> IResult<&str, Term, Error> {
@@ -262,31 +261,13 @@ fn parse_var(i: &str) -> IResult<&str, Term, Error> {
 fn parse_symbol(i: &str) -> IResult<&str, String, Error> {
     // Allowed first char: [a-z]
     // Allowed subsequent: [A-Za-z0-9_]
-    let (i, sym) = ws(map_res(
+    let (i, sym) = ws(
         take_while1(|c: char| c.is_ascii_alphanumeric() || c == '_'),
-        |s: &str| {
-            let first_char = s.chars().next().unwrap();
-            if first_char.is_lowercase() {
-                Ok(s.to_string())
-            } else {
-                Err("Not a symbol")
-            }
-        },
-    ))(i)?;
-    Ok((i, sym))
+    )(i)?;
+    Ok((i, sym.to_string()))
 }
 
 // --- Structured term parsers ---
-
-/// Parse a list: `[ term, term, ... ]`
-fn parse_list(i: &str) -> IResult<&str, Term, Error> {
-    let (i, terms) = delimited(
-        ws(char('[')),
-        separated_list0(ws(char(',')), parse_term),
-        ws(char(']')),
-    )(i)?;
-    Ok((i, Term::List(terms)))
-}
 
 /// Parse a cons cell: `[term | term]`
 /// This is a special case of a list, where the tail is a single term.
@@ -295,60 +276,6 @@ fn parse_cons(i: &str) -> IResult<&str, Term, Error> {
     let (i, (head, _, tail)) = tuple((ws(parse_term), ws(char('|')), ws(parse_term)))(i)?;
     let (i, _) = ws(char(']'))(i)?;
     Ok((i, Term::Cons(Box::new(head), Box::new(tail))))
-}
-
-/// Parse a set: `{ term, term, ... }`
-// fn parse_set(i: &str) -> IResult<&str, Term, Error> {
-//     let (i, terms) = delimited(
-//         ws(char('{')),
-//         separated_list0(ws(char(',')), parse_term),
-//         ws(char('}')),
-//     )(i)?;
-
-//     let mut set = BTreeSet::new();
-//     for t in terms {
-//         set.insert(t);
-//     }
-//     Ok((i, Term::Set(set)))
-// }
-
-// /// Parse a map: `{ key => value, key => value, ... }`
-// fn parse_map(i: &str) -> IResult<&str, Term, Error> {
-//     let parse_entry = separated_pair(parse_term, ws(tag("=>")), parse_term);
-
-//     let (i, entries) = delimited(
-//         ws(char('{')),
-//         separated_list0(ws(char(',')), parse_entry),
-//         ws(char('}')),
-//     )(i)?;
-
-//     let mut map = BTreeMap::new();
-//     for (k, v) in entries {
-//         map.insert(k, v);
-//     }
-//     Ok((i, Term::Map(map)))
-// }
-
-/// Parse a union: `v[ term, term, ... ]`
-fn parse_union(i: &str) -> IResult<&str, Term, Error> {
-    let (i, _) = ws(tag("v"))(i)?;
-    let (i, terms) = delimited(
-        ws(char('[')),
-        separated_list0(ws(char(',')), parse_term),
-        ws(char(']')),
-    )(i)?;
-    Ok((i, Term::Union(terms)))
-}
-
-/// Parse an intersection: `^[ term, term, ... ]`
-fn parse_intersection(i: &str) -> IResult<&str, Term, Error> {
-    let (i, _) = ws(tag("^"))(i)?;
-    let (i, terms) = delimited(
-        ws(char('[')),
-        separated_list0(ws(char(',')), parse_term),
-        ws(char(']')),
-    )(i)?;
-    Ok((i, Term::Intersect(terms)))
 }
 
 /// Parse an application term: `foo(term, term, ...)`
@@ -374,37 +301,24 @@ fn parse_term_atom(i: &str) -> IResult<&str, Term, Error> {
         parse_app,
         parse_cut,
         parse_nil,
-        parse_bool,
-        parse_int,
-        map(parse_string, Term::Str),
+        parse_bool_term,
+        parse_int_term,
+        parse_string_term,
         parse_var,
-        parse_union,
-        parse_intersection,
         parse_cons,
-        parse_list,
         // parse_set,
         // parse_map,
     ))(i)
 }
 
-fn parse_equal(i: &str) -> IResult<&str, Term, Error> {
-    let (i, (lhs, _, rhs)) = tuple((parse_term_atom, ws(tag("=")), parse_term_atom))(i)?;
-    Ok((i, Term::Equal(Box::new(lhs), Box::new(rhs))))
-}
-
-fn parse_not_equal(i: &str) -> IResult<&str, Term, Error> {
-    let (i, (lhs, _, rhs)) = tuple((parse_term_atom, ws(tag("!=")), parse_term_atom))(i)?;
-    Ok((i, Term::NotEqual(Box::new(lhs), Box::new(rhs))))
-}
-
 fn parse_complement(i: &str) -> IResult<&str, Term, Error> {
     let (i, _) = ws(tag("~"))(i)?;
     let (i, term) = parse_term_atom(i)?;
-    Ok((i, Term::Complement(Box::new(term))))
+    Ok((i, term.negate()))
 }
 
 pub fn parse_term(i: &str) -> IResult<&str, Term, Error> {
-    alt((parse_equal, parse_not_equal, parse_complement, parse_term_atom))(i)
+    alt((parse_complement, parse_term_atom))(i)
 }
 
 // --- Rule parsing ---
@@ -487,7 +401,7 @@ pub fn parse_query(i: &str) -> IResult<&str, Query, Error> {
     let (i, _) = ws(tag("?-"))(i)?;
     let (i, goals) = separated_list1(ws(char(',')), parse_term)(i)?;
     let (i, _) = ws(char('.'))(i)?;
-    Ok((i, Query { goals }))
+    Ok((i, Query::new(goals)))
 }
 
 // --- Helper for parsing multiple rules or queries from a file/string ---
@@ -518,6 +432,142 @@ pub fn parse_rules(i: &str) -> IResult<&str, Vec<Rule>, Error> {
     Ok((input, acc))
 }
 
+fn options_int_flag(i: &str) -> IResult<&str, (&str, String, i64), Error> {
+    let flag_input = i;
+    let (i, flag_name) = ws(parse_symbol)(i)?;
+    let (i, _) = ws(char('='))(i)?;
+    let (i, value) = ws(parse_int)(i)?;
+
+    Ok((i, (flag_input, flag_name, value)))
+}
+
+fn options_bool_flag(i: &str) -> IResult<&str, (&str, String, bool), Error> {
+    let flag_input = i;
+    let (i, flag_name) = ws(parse_symbol)(i)?;
+    let (i, _) = ws(char('='))(i)?;
+    let (i, value) = ws(parse_bool)(i)?;
+
+    Ok((i, (flag_input, flag_name, value)))
+}
+
+fn options_str_flag(i: &str) -> IResult<&str, (&str, String, String), Error> {
+    let flag_input = i;
+    let (i, flag_name) = ws(parse_symbol)(i)?;
+    let (i, _) = ws(char('='))(i)?;
+    let (i, value) = ws(parse_string)(i)?;
+
+    Ok((i, (flag_input, flag_name, value)))
+}
+
+pub fn parse_search_config<'a, 'b, S>(i: &'a str, existing_config: &'b mut SearchConfig<S>) -> IResult<&'a str, (), Error<'a>> where S: Solver {
+    // Parse the search config
+    let (i, _) = ws(tag("options"))(i)?;
+    let (i, _) = ws(tag("("))(i)?;
+    // let options_int_flag = |flag_name| {
+    //     let (i, _) = ws(tag(flag_name))(i)?;
+    //     let (i, _) = ws(char('='))(i)?;
+    //     let (i, value) = ws(parse_int)(i)?;
+    //     Ok((i, value))
+    // };
+
+    // let options_bool_flag = |flag_name| {
+    //     let (i, _) = ws(tag(flag_name))(i)?;
+    //     let (i, _) = ws(char('='))(i)?;
+    //     let (i, value) = ws(boolean)(i)?;
+    //     Ok((i, value))
+    // };
+
+    // let options_str_flag = |flag_name| {
+    //     let (i, _) = ws(tag(flag_name))(i)?;
+    //     let (i, _) = ws(char('='))(i)?;
+    //     let (i, value) = ws(parse_string)(i)?;
+    //     Ok((i, value))
+    // };
+
+    enum ConfigValue {
+        Int(i64),
+        Bool(bool),
+        Str(String),
+    }
+
+    let (i, flags) = cut(separated_list0(ws(char(',')), alt((
+        map(options_int_flag, |(flag_input, name, value)| (flag_input, name, ConfigValue::Int(value))),
+        map(options_bool_flag, |(flag_input, name, value)| (flag_input, name, ConfigValue::Bool(value))),
+        map(options_str_flag, |(flag_input, name, value)| (flag_input, name, ConfigValue::Str(value))),
+    ))))(i)?;
+
+    let (i, _) = cut(ws(char(')')))(i)?;
+    let (i, _) = cut(ws(char('.')))(i)?;
+
+    let mut config = existing_config.clone();
+    for (i, flag, value) in flags {
+        match value {
+            ConfigValue::Int(value) => {
+                config = match flag.as_str() {
+                    "step_limit" => config.with_step_limit(value as usize),
+                    "depth_limit" => config.with_depth_limit(value as usize),
+                    "width_limit" => config.with_width_limit(value as usize),
+                    "solution_limit" => config.with_solution_limit(value as usize),
+                    _ => {
+                        return Err(nom::Err::Error(nom::error::VerboseError {
+                            errors: vec![(
+                                i,
+                                nom::error::VerboseErrorKind::Nom(nom::error::ErrorKind::Tag),
+                            )],
+                        }))
+                    }
+                }
+            },
+            ConfigValue::Bool(value) => {
+                config = match flag.as_str() {
+                    "pruning" => config.with_pruning(value),
+                    "require_rule_head_match" => config.with_require_rule_head_match(value),
+                    "reduce_query" => config.with_reduce_query(value),
+                    _ => {
+                        return Err(nom::Err::Error(nom::error::VerboseError {
+                            errors: vec![(
+                                i,
+                                nom::error::VerboseErrorKind::Nom(nom::error::ErrorKind::Tag),
+                            )],
+                        }))
+                    }
+                }
+            },
+            ConfigValue::Str(value) => {
+                config = match flag.as_str() {
+                    "traversal" => {
+                        let traversal = match value.as_str() {
+                            "breadth_first" => Traversal::BreadthFirst,
+                            "depth_first" => Traversal::DepthFirst,
+                            _ => {
+                                return Err(nom::Err::Error(nom::error::VerboseError {
+                                    errors: vec![(
+                                        i,
+                                        nom::error::VerboseErrorKind::Nom(nom::error::ErrorKind::Tag),
+                                    )],
+                                }))
+                            }
+                        };
+                        config.with_traversal(traversal)
+                    },
+                    _ => {
+                        return Err(nom::Err::Error(nom::error::VerboseError {
+                            errors: vec![(
+                                i,
+                                nom::error::VerboseErrorKind::Nom(nom::error::ErrorKind::Tag),
+                            )],
+                        }))
+                    }
+                }
+            }
+        }
+    }
+
+    *existing_config = config;
+
+    Ok((i, ()))
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -539,6 +589,12 @@ mod test {
         // Test zero
         let input = "0";
         let expected = Term::Int(0);
+        let (_, result) = parse_term(input).unwrap();
+        assert_eq!(result, expected);
+
+        // Test application with integer
+        let input = "foo(2)";
+        let expected = Term::App(AppTerm::new("foo", vec![Term::Int(2)]));
         let (_, result) = parse_term(input).unwrap();
         assert_eq!(result, expected);
     }
@@ -598,27 +654,10 @@ mod test {
         assert_eq!(result, expected);
     }
 
-    #[test]
-    fn test_parse_list() {
-        let input = "[1, 2, 3]";
-        let expected = Term::List(vec![1.into(), 2.into(), 3.into()]);
-        let (_, result) = parse_term(input).unwrap();
-        assert_eq!(result, expected);
-
-        let input = "[X, true, \"hello\"]";
-        let expected = Term::List(vec![
-            Term::Var(Var::new("X")),
-            Term::True,
-            Term::Str("hello".to_string()),
-        ]);
-        let (_, result) = parse_term(input).unwrap();
-        assert_eq!(result, expected);
-    }
-
     // #[test]
     // fn test_parse_set() {
     //     let input = "{1, 2, 3}";
-    //     let mut set = BTreeSet::new();
+    //     let mut set = HashSet::new();
     //     set.insert(Term::Int(1));
     //     set.insert(Term::Int(2));
     //     set.insert(Term::Int(3));
@@ -627,7 +666,7 @@ mod test {
     //     assert_eq!(result, expected);
 
     //     let input = "{X, true, \"hello\"}";
-    //     let mut set = BTreeSet::new();
+    //     let mut set = HashSet::new();
     //     set.insert(Term::Var(Var::new("X")));
     //     set.insert(Term::True);
     //     set.insert(Term::Str("hello".to_string()));
@@ -654,40 +693,6 @@ mod test {
     //     let (_, result) = parse_term(input).unwrap();
     //     assert_eq!(result, expected);
     // }
-
-    #[test]
-    fn test_parse_union() {
-        let input = "v[foo(1), bar(2)]";
-        let expected = Term::Union(vec![app!("foo", [1]), app!("bar", [2])]);
-        let (_, result) = parse_term(input).unwrap();
-        assert_eq!(result, expected);
-
-        let input = "v[ X, Y, Z ]";
-        let expected = Term::Union(vec![
-            Term::Var(Var::new("X")),
-            Term::Var(Var::new("Y")),
-            Term::Var(Var::new("Z")),
-        ]);
-        let (_, result) = parse_term(input).unwrap();
-        assert_eq!(result, expected);
-    }
-
-    #[test]
-    fn test_parse_intersection() {
-        let input = "^[foo(1), bar(2)]";
-        let expected = Term::Intersect(vec![app!("foo", [1]), app!("bar", [2])]);
-        let (_, result) = parse_term(input).unwrap();
-        assert_eq!(result, expected);
-
-        let input = "^[ X, Y, Z ]";
-        let expected = Term::Intersect(vec![
-            Term::Var(Var::new("X")),
-            Term::Var(Var::new("Y")),
-            Term::Var(Var::new("Z")),
-        ]);
-        let (_, result) = parse_term(input).unwrap();
-        assert_eq!(result, expected);
-    }
 
     #[test]
     fn test_parse_app() {
@@ -793,9 +798,7 @@ mod test {
     #[test]
     fn test_parse_query_single_goal() {
         let input = "?- foo(X).";
-        let expected = Query {
-            goals: vec![app!("foo", [Term::Var(Var::new("X"))])],
-        };
+        let expected = Query::new(vec![app!("foo", [Term::Var(Var::new("X"))])]);
         let (_, result) = parse_query(input).unwrap();
         assert_eq!(result, expected);
     }
@@ -803,18 +806,23 @@ mod test {
     #[test]
     fn test_parse_query_multiple_goals() {
         let input = "?- parent(X, Y), ancestor(Y, Z).";
-        let expected = Query {
-            goals: vec![
-                app!(
-                    "parent",
-                    [Term::Var(Var::new("X")), Term::Var(Var::new("Y"))]
-                ),
-                app!(
-                    "ancestor",
-                    [Term::Var(Var::new("Y")), Term::Var(Var::new("Z"))]
-                ),
-            ],
-        };
+        // let expected = Query {
+        //     goals: vec![
+        //         app!(
+        //             "parent",
+        //             [Term::Var(Var::new("X")), Term::Var(Var::new("Y"))]
+        //         ),
+        //         app!(
+        //             "ancestor",
+        //             [Term::Var(Var::new("Y")), Term::Var(Var::new("Z"))]
+        //         ),
+        //     ],
+        // };
+        let expected = Query::new(vec![
+            app!("parent", [Term::Var(Var::new("X")), Term::Var(Var::new("Y"))]),
+            app!("ancestor", [Term::Var(Var::new("Y")), Term::Var(Var::new("Z"))]),
+        ]);
+
         let (_, result) = parse_query(input).unwrap();
         assert_eq!(result, expected);
     }

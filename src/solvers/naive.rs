@@ -1,5 +1,5 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};  // <-- add HashMap
-use std::hash::{Hash, Hasher};                        use crate::UnifyEnv;
+use std::collections::{BTreeMap, HashSet, HashMap};  // <-- add HashMap
+use std::hash::{Hash, Hasher};                        use crate::Env;
 // <-- needed for hashing
 use crate::{solvers::{Solver}, term, Query, Rule, Term, Var};
 use tracing::{info, warn, debug, error};
@@ -51,7 +51,7 @@ pub struct NaiveSolver {
 
     // NEW: add a cache for memoization.
     // We'll store, for a given (subgoal, current_bindings), which solutions were found.
-    memo: HashMap<MemoKey, BTreeSet<BTreeMap<Var, Term>>>,
+    memo: HashMap<MemoKey, HashSet<BTreeMap<Var, Term>>>,
 }
 
 impl NaiveSolver {
@@ -82,10 +82,10 @@ impl NaiveSolver {
         &mut self,
         overall_goals: &[Term],
         goals: &[Term],
-        env: UnifyEnv,
+        env: Env,
         recursive_depth: usize,
         solutions_limit: &mut isize,
-        unique_solutions: &mut BTreeSet<UnifyEnv>,
+        unique_solutions: &mut HashSet<Env>,
     ) {
         // 1. If no goals remain, we've satisfied them all. Add the current bindings as a solution.
         if goals.is_empty() {
@@ -115,7 +115,7 @@ impl NaiveSolver {
         }
 
         // We'll accumulate solutions locally, then store them in memo at the end.
-        let mut local_solutions = BTreeSet::new();
+        let mut local_solutions = HashSet::new();
 
         // 2. Otherwise, take the first goal and attempt to solve it.
         let (first_goal, rest_goals) = goals.split_first().unwrap();
@@ -191,16 +191,16 @@ impl NaiveSolver {
 
 // Helper functions remain mostly the same...
 fn simplify_term(term: &Term, solution: &BTreeMap<Var, Term>) -> (Term, bool) {
-    let mut free_vars = BTreeSet::new();
-    term.free_vars(&mut free_vars);
+    let mut used_vars = HashSet::new();
+    term.used_vars(&mut used_vars);
 
     let mut new_term = term.clone();
-    for var in free_vars {
+    for var in used_vars {
         if let Some(substitute) = solution.get(&var) {
             new_term.substitute_var(var, substitute.clone());
         }
     }
-    let is_simplified = new_term.has_free_vars();
+    let is_simplified = new_term.has_used_vars();
     (new_term, is_simplified)
 }
 
@@ -225,9 +225,9 @@ fn simplify_solution(solution: &BTreeMap<Var, Term>) -> BTreeMap<Var, Term> {
 }
 
 fn prune_solution(goals: &[Term], solution: &mut BTreeMap<Var, Term>) {
-    let mut relevant_vars = BTreeSet::new();
+    let mut relevant_vars = HashSet::new();
     for goal in goals.iter() {
-        goal.free_vars(&mut relevant_vars);
+        goal.used_vars(&mut relevant_vars);
     }
     solution.retain(|var, _| relevant_vars.contains(var));
 }
@@ -238,8 +238,8 @@ impl Solver for NaiveSolver {
         &mut self,
         query: &Query,
         max_solutions: usize
-    ) -> Result<BTreeSet<BTreeMap<Var, Term>>, String> {
-        let mut unique_solutions = BTreeSet::new();
+    ) -> Result<HashSet<BTreeMap<Var, Term>>, String> {
+        let mut unique_solutions = HashSet::new();
 
         // Clear or reuse the memo. If you want to reuse the memo
         // across different queries, skip clearing it.

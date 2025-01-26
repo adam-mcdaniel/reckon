@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashSet, HashMap};
 use crate::{Term, Query, Rule, Solver, Var};
 use tracing::*;
 
@@ -160,10 +160,10 @@ impl Solver for DfsSolver {
 /// gives fresh IDs for newly created variables, you can simply re-create them.
 fn refresh_rule_vars(rule: &mut Rule) {
     // Gather all variables
-    let mut vars_in_rule = BTreeSet::new();
-    rule.head.free_vars(&mut vars_in_rule);
+    let mut vars_in_rule = HashSet::new();
+    rule.head.used_vars(&mut vars_in_rule);
     for t in &rule.tail {
-        t.free_vars(&mut vars_in_rule);
+        t.used_vars(&mut vars_in_rule);
     }
 
     // For each var, make a new variable with a fresh symbol name
@@ -184,19 +184,19 @@ fn refresh_rule_vars(rule: &mut Rule) {
 
 fn simplify_term(term: &Term, solution: &BTreeMap<Var, Term>) -> (Term, bool) {
     // Get the free variables of the goal
-    let mut free_vars = BTreeSet::new();
-    term.free_vars(&mut free_vars);
+    let mut used_vars = HashSet::new();
+    term.used_vars(&mut used_vars);
 
     let mut new_term = term.clone();
 
     // For every variable in the term to simplify,
     // replace it with the corresponding term in the solution.
-    for var in free_vars {
+    for var in used_vars {
         if let Some(substitute) = solution.get(&var) {
             new_term.substitute_var(var, substitute.clone());
         }
     }
-    let is_simplified = new_term.has_free_vars();
+    let is_simplified = new_term.has_used_vars();
     (new_term, is_simplified)
 }
 
@@ -230,9 +230,9 @@ fn simplify_solutions(solutions: Vec<BTreeMap<Var, Term>>) -> Vec<BTreeMap<Var, 
 
 fn prune_solution(goals: &[Term], solution: &mut BTreeMap<Var, Term>) {
     // Remove irrelevant bindings
-    let mut relevant_vars = BTreeSet::new();
+    let mut relevant_vars = HashSet::new();
     for goal in goals.iter() {
-        goal.free_vars(&mut relevant_vars);
+        goal.used_vars(&mut relevant_vars);
     }
     
     solution.retain(|var, _| relevant_vars.contains(var));
