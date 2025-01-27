@@ -324,7 +324,7 @@ fn parse_complement(i: &str) -> IResult<&str, Term, Error> {
     Ok((i, term.negate()))
 }
 
-pub fn parse_term(i: &str) -> IResult<&str, Term, Error> {
+pub(super) fn parse_term(i: &str) -> IResult<&str, Term, Error> {
     alt((parse_complement, parse_term_atom))(i)
 }
 
@@ -395,7 +395,7 @@ fn parse_term_rule(i: &str) -> IResult<&str, Rule, Error> {
 
 /// Parse a single `Rule`: `head :- goal1, goal2, ... .`
 /// or a fact: `head.`
-pub fn parse_rule(i: &str) -> IResult<&str, Rule, Error> {
+pub(super) fn parse_rule(i: &str) -> IResult<&str, Rule, Error> {
     alt((parse_app_rule, cut(parse_term_rule)))(i)
 }
 
@@ -404,7 +404,7 @@ pub fn parse_rule(i: &str) -> IResult<&str, Rule, Error> {
 // A query might be: `?- goal1, goal2, ... .`
 // We'll parse a question mark, dash, then a list of terms separated by commas, ended by a period.
 
-pub fn parse_query(i: &str) -> IResult<&str, Query, Error> {
+pub(super) fn parse_query(i: &str) -> IResult<&str, Query, Error> {
     let (i, _) = ws(tag("?-"))(i)?;
     let (i, goals) = separated_list1(ws(char(',')), parse_term)(i)?;
     let (i, _) = ws(char('.'))(i)?;
@@ -414,7 +414,7 @@ pub fn parse_query(i: &str) -> IResult<&str, Query, Error> {
 // --- Helper for parsing multiple rules or queries from a file/string ---
 
 /// Parse multiple rules separated by whitespace until EOF.
-pub fn parse_rules(i: &str) -> IResult<&str, Vec<Rule>, Error> {
+pub(super) fn parse_rules(i: &str) -> IResult<&str, Vec<Rule>, Error> {
     let mut acc = Vec::new();
     let mut input = i;
 
@@ -466,7 +466,7 @@ fn options_str_flag(i: &str) -> IResult<&str, (&str, String, String), Error> {
     Ok((i, (flag_input, flag_name, value)))
 }
 
-pub fn parse_search_config<'a, 'b, S>(i: &'a str, existing_config: &'b mut SearchConfig<S>) -> IResult<&'a str, (), Error<'a>> where S: Solver {
+pub(super) fn parse_search_config<'a, 'b, S>(i: &'a str, existing_config: &'b mut SearchConfig<S>) -> IResult<&'a str, (), Error<'a>> where S: Solver {
     // Parse the search config
     let (i, _) = ws(tag("options"))(i)?;
     let (i, _) = ws(tag("("))(i)?;
@@ -532,6 +532,7 @@ pub fn parse_search_config<'a, 'b, S>(i: &'a str, existing_config: &'b mut Searc
                     "reduce_query" => config.with_reduce_query(value),
                     "clean_memoization" => config.with_clean_memoization(value),
                     "stop_after_first_goal" => config.with_stop_after_first_goal(value),
+                    "enable_sorting" => config.with_sorting_enabled(value),
                     _ => {
                         return Err(nom::Err::Error(nom::error::VerboseError {
                             errors: vec![(
