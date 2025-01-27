@@ -6,8 +6,7 @@
     <strong>A reasonable language for reasoning tasks!</strong>
   </p>
   <p float="left">
-    <img src="assets/welcome-cropped.png" width="51%" height="100%"/>
-    <img src="assets/about-cropped.png" width="46%" height="100%"/>
+    <img src="assets/reckon-logo5.png" width="60%" height="100%"/>
   </p>
 </div>
 
@@ -28,6 +27,13 @@
 Reckon is a programming language designed for reasoning tasks, proof checking, and logical inferencing. Its syntax is a variant of Prolog, so it's easy to learn and use if you're already familiar with logic programming or propositional logic.
 
 The language is still in its early stages of development, so there are many features that are not yet implemented. However, the core functionality is there, and you can already write and run simple programs in Reckon.
+
+<div align="center">
+  <p float="left">
+    <img src="assets/welcome-cropped.png" width="51%" height="80%"/>
+    <img src="assets/about-cropped.png" width="46%" height="80%"/>
+  </p>
+</div>
 
 ## Getting Started
 
