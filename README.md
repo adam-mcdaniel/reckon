@@ -56,7 +56,7 @@ This will start the Reckon REPL, where you can begin to enter your rules and que
 
 For more information on how to use the REPL commands, type `:help` in the REPL.
 
-![Help](assets/help.png)
+![Help](assets/help2.png)
 
 ### Using Reckon as a Library
 
