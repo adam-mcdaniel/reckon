@@ -1,3 +1,29 @@
+//! # Reckon
+//! 
+//! <div align="center">
+//!   <h1>🧮💡<b>The Reckon Programming Language</b>💭📐</h1>
+//!   <p>
+//!     <strong>A reasonable language for reasoning tasks!</strong>
+//!   </p>
+//!   <p float="left">
+//!     <img src="assets/welcome-cropped.png" width="51%" height="100%"/>
+//!     <img src="assets/about-cropped.png" width="46%" height="100%"/>
+//!   </p>
+//! </div>
+//! 
+//! ## About
+//! 
+//! Reckon is a simple logic🧮 programming language designed to be used either as a standalone tool or as a library in a larger Rust project for performing logical inference💡 and reasoning.    
+//!
+//! It supports:
+//! ☞ Rules, facts, and queries with horn clauses📯
+//! ☞ Negation as failure🚫   
+//! ☞ Unification and backtracking🔀
+//! ☞ Configurable search strategies🔎
+//! ☞ A REPL for interactive use🔄
+//! ☞ Importing programs from files📂
+//! ☞ A simple interface as a library📚
+
 mod solvers;
 pub use solvers::*;
 
