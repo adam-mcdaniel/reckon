@@ -32,6 +32,7 @@ impl Rule {
         }
     }
 
+
     /// Apply a rule to a term in an environment.
     /// 
     /// The `original_term` is the term that the rule is being applied to.
@@ -45,6 +46,15 @@ impl Rule {
         if !self.might_apply_to(original_term) {
             return false;
         }
+
+        if self.head == *original_term && self.tail.is_empty() {
+            // If the head is the same as the term, then the rule is trivially true
+            // Remove the term from the query
+            query.remove_goal(&original_term);
+
+            return true;
+        }
+
 
         let mut negated = false;
         let mut term = original_term.clone();
