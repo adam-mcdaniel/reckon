@@ -1,0 +1,54 @@
+
+options(
+    depth_limit=3000,
+    traversal="breadth_first",
+    pruning=false,
+    require_rule_head_match=true,
+    reduce_query=false,
+    solution_limit=5,
+    enable_sorting=true
+).
+
+
+// Define the natural numbers
+is_nat(s(X)) :- is_nat(X).
+is_nat(0).
+
+// Define addition of natural numbers
+add(X, 0, X) :- is_nat(X).
+add(X, s(Y), s(Z)) :- add(X, Y, Z).
+
+// Define multiplication of natural numbers
+mul(X, s(Y), Z) :- mul(X, Y, W), add(X, W, Z).
+mul(X, 0, 0) :- is_nat(X).
+
+// Define less-than-or-equal-to relation on natural numbers
+leq(0, X) :- is_nat(X).
+leq(s(X), s(Y)) :- leq(X, Y).
+
+// Define greater-than-or-equal-to relation on natural numbers
+geq(X, Y) :- leq(Y, X).
+
+// Define equality relation on natural numbers
+eq(X, Y) :- leq(X, Y), leq(Y, X).
+neq(X, Y) :- ~eq(X, Y).
+
+// Define less-than relation on natural numbers
+lt(X, Y) :- leq(X, Y), ~eq(X, Y).
+// Define greater-than relation on natural numbers
+gt(X, Y) :- geq(X, Y), ~eq(X, Y).
+
+// Define the square relation, Y is the square of X if Y = X^2
+square(X, Y) :- mul(X, X, Y).
+
+// Find two numbers whose sum is 4
+?- add(A, B, s(s(s(s(0))))).
+
+// Find three numbers A, B, C such that A + B = C and A <= 3, B <= 3, C <= 4, and A + A != 4
+?- ~add(A, A, s(s(s(s(0))))), add(A, B, C), leq(A, s(s(s(0)))), leq(B, s(s(s(0)))), leq(C, s(s(s(s(0))))).
+
+// Set the solution limit to 1 for the following queries
+options(solution_limit=1).
+
+// Find a natural number X such that X^2 = 2 (no solution)
+?- square(X, s(s(0))). // false

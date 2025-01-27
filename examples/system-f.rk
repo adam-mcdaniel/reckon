@@ -1,0 +1,89 @@
+options(
+    depth_limit=500,
+    width_limit=5,
+    traversal="breadth_first",
+    pruning=false,
+    require_rule_head_match=true,
+    reduce_query=false,
+    solution_limit=1,
+    clean_memoization=true
+).
+
+term(var(X)) :- atom(X).
+
+atom(X).
+
+% Lambda abstraction
+term(abs(X, T, Body)) :- atom(X), type(T), term(Body).
+
+% Application
+term(app(Func, Arg)) :- term(Func), term(Arg).
+
+% Type abstraction (universal quantification: ΛX. T)
+term(tabs(TVar, Body)) :- atom(TVar), term(Body).
+
+% Type application (specializing a polymorphic type: T [τ])
+term(tapp(Func, T)) :- term(Func), type(T).
+
+% Base types
+type(base(T)) :- atom(T). % Example: `int`, `bool`
+
+% Arrow types (functions)
+type(arrow(T1, T2)) :- type(T1), type(T2). % Example: T1 -> T2
+
+% Universal quantifiers (∀X. T)
+type(forall(TVar, T)) :- atom(TVar), type(T).
+
+bind(X, T) :- atom(X), type(T).
+
+context(nil).
+context([]).
+context([bind(X, T) | Rest]) :- atom(X), type(T), context(Rest).
+
+member(X, [X | _]).
+member(X, [_ | Rest]) :- member(X, Rest).
+
+
+has_type(Ctx, var(X), T) :-
+    member(bind(X, T), Ctx).
+
+has_type(Ctx, abs(X, T, Body), arrow(T, TBody)) :-
+    has_type([bind(X, T) | Ctx], Body, TBody).
+
+has_type(Ctx, app(Func, Arg), T2) :-
+    has_type(Ctx, Func, arrow(T1, T2)),
+    has_type(Ctx, Arg, T1).
+
+has_type(Ctx, tabs(TVar, Body), forall(TVar, TBody)) :-
+    has_type(Ctx, Body, TBody).
+
+has_type(Ctx, tapp(Func, Type), TSubstituted) :-
+    has_type(Ctx, Func, forall(TVar, TBody)),
+    substitute(TBody, TVar, Type, TSubstituted).
+
+eq(T1, T1).
+eq(base(T1), base(T2)) :- eq(T1, T2).
+eq(arrow(T1, T2), arrow(T3, T4)) :- eq(T1, T3), eq(T2, T4).
+eq(forall(X, T1), forall(X, T2)) :-
+    eq(T1, T2). % Bodies of the quantified types must be equal
+neq(T1, T2) :- ~eq(T1, T2).
+
+% Substitution base case: If the type is the type variable being substituted, replace it.
+substitute(base(T), TVar, Replacement, Replacement) :-
+    eq(T, TVar).
+
+% If the type is not the variable being replaced, leave it unchanged.
+substitute(base(T), TVar, _, base(T)) :-
+    eq(T, TVar).
+
+% For arrow types, substitute in both the domain and codomain.
+substitute(arrow(T1, T2), TVar, Replacement, arrow(T1Sub, T2Sub)) :-
+    substitute(T1, TVar, Replacement, T1Sub),
+    substitute(T2, TVar, Replacement, T2Sub).
+
+% For universal quantifiers, substitute in the body only if the bound variable is not the same.
+substitute(forall(TVarInner, TBody), TVar, Replacement, forall(TVarInner, TBodySub)) :-
+    neq(TVar, TVarInner), % Avoid variable capture
+    substitute(TBody, TVar, Replacement, TBodySub).
+
+?- has_type([], abs(x, A, abs(y, base(float), var(x))), T).
