@@ -91,6 +91,8 @@ pub struct SearchConfig<S> where S: Solver {
     pub clean_memoization: bool,
     /// Stop application after the first goal in the query
     pub stop_after_first_goal: bool,
+    /// Enable the use of sorting the queue of queries after a certain number of steps.
+    pub enable_sorting: bool,
 }
 
 /// Print the search configuration.
@@ -138,6 +140,7 @@ impl<S> SearchConfig<S> where S: Solver {
             solution_limit: 1,
             clean_memoization: false,
             stop_after_first_goal: false,
+            enable_sorting: true,
         }
     }
 
@@ -161,6 +164,12 @@ impl<S> SearchConfig<S> where S: Solver {
     /// Create a new search configuration with the given traversal strategy.
     pub fn with_traversal(mut self, traversal: Traversal) -> Self {
         self.traversal = traversal;
+        self
+    }
+
+    /// Enable sorting the queue of queries after a certain number of steps.
+    pub fn with_sorting_enabled(mut self, enable_sort: bool) -> Self {
+        self.enable_sorting = enable_sort;
         self
     }
 
@@ -227,9 +236,11 @@ impl<S> SearchConfig<S> where S: Solver {
 
     /// Sort the queue of queries using the sorter function.
     pub fn sort_queue(&self, queue: &mut VecDeque<(Env<S>, Query, usize)>) {
-        if let Some(sorter) = &self.queue_sorter {
-            debug!("Sorting queue");
-            sorter(queue);
+        if self.enable_sorting {
+            if let Some(sorter) = &self.queue_sorter {
+                debug!("Sorting queue");
+                sorter(queue);
+            }
         }
     }
 
@@ -267,6 +278,7 @@ impl<S> Default for SearchConfig<S> where S: Solver {
             .with_require_rule_head_match(true)
             .with_width_limit(5)
             .with_clean_memoization(true)
+            .with_sorting_enabled(false)
     }
 }
 
@@ -292,6 +304,9 @@ pub struct Env<S> where S: Solver {
     /// The queries that have been proven false.
     /// This is used to avoid re-proving the same queries multiple times.
     proven_false: HashSet<Query>,
+    /// The queries that have been proven true.
+    /// This is used to avoid re-proving the same queries multiple times.
+    proven_true: HashMap<Query, Solution>,
     /// The number of steps performed in the search.
     steps: usize,
 }
@@ -325,12 +340,15 @@ impl<S> Hash for Env<S> where S: Solver {
 impl<S> Env<S> where S: Solver {
     /// Create a new environment with the given rules.
     pub fn new(rules: &[Rule]) -> Self {
+        let rules = rules.to_vec();
+        // rules.sort_by_key(|r| usize::MAX - r.size());
         Env {
-            rules: Arc::new(rules.to_vec()),
+            rules: Arc::new(rules),
             var_bindings: Arc::new(HashMap::new()),
             solver: S::default(),
             search_config: SearchConfig::default(),
             proven_false: HashSet::new(),
+            proven_true: HashMap::new(),
             steps: 0,
         }
     }
@@ -490,7 +508,9 @@ impl<S> Env<S> where S: Solver {
 
     /// Add a rule to the environment.
     pub fn add_rule(&mut self, rule: Rule) {
-        Arc::make_mut(&mut self.rules).push(rule);
+        let rules = Arc::make_mut(&mut self.rules);
+        rules.push(rule);
+        // rules.sort_by_key(|r| usize::MAX - r.size());
     }
 
     /// Convert the bindings in this environment to a solution.
@@ -547,7 +567,7 @@ impl<S> Env<S> where S: Solver {
 
             for free_query_var in &free_query_vars {
                 if let Some(term) = bindings.get(free_query_var) {
-                    has_found_used_vars = has_found_used_vars || term.has_used_vars();
+                    has_found_used_vars = has_found_used_vars || term.has_vars();
                 }
                 if has_found_used_vars {
                     break;
@@ -650,6 +670,9 @@ impl<S> Env<S> where S: Solver {
     pub fn prove_true(&mut self, query: &Query) -> Result<Solution, HashSet<Term>> {
         // let solutions = self.find_solutions_dfs(&query, &query, 1, 0, &mut steps);
         // let solutions = self.find_solutions_bfs(&query, &query, 1);
+        if let Some(solution) = self.proven_true.get(query) {
+            return Ok(solution.clone());
+        }
         let old_solution_limit = self.search_config.solution_limit;
         self.search_config.solution_limit = 1;
         let solutions = self.find_solutions(&query);
@@ -974,6 +997,7 @@ impl<S> Env<S> where S: Solver {
         if self.search_config.clean_memoization {
             self.solver.reset();
         }
+        
         self.solver.save_solutions(self.clone(), original_query.clone(), solutions.clone());
         self.steps = total_steps;
 
@@ -1079,7 +1103,7 @@ impl<S> Env<S> where S: Solver {
             }
             simplified_query.remove_irreducible_negatives_in_place(&mut simplified_env);
             // if simplified_query.remove_provable_complements(&mut simplified_env) {
-            //     error!("Absurdity detected in query: {}", simplified_query);
+            //     debug!("Absurdity detected in query: {}", simplified_query);
             //     continue;
             // }
 
@@ -1114,7 +1138,7 @@ impl<S> Env<S> where S: Solver {
                     if total_steps % 100 == 0 {
                         debug!("Step {} (queue size={}): {tmp_query}", total_steps, queue.len());
                         // if tmp_query.remove_provable_complements(&mut tmp_env) {
-                        //     error!("Absurdity detected in query: {}", tmp_query);
+                        //     debug!("Absurdity detected in query: {}", tmp_query);
                         //     continue;
                         // }
                     }
@@ -1208,6 +1232,7 @@ impl<S> From<Solution> for Env<S> where S: Solver {
             var_bindings: Arc::new(solution.var_bindings.into_iter().collect()),
             solver: S::default(),
             proven_false: HashSet::new(),
+            proven_true: HashMap::new(),
             steps: 0,
         }
     }
