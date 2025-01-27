@@ -4,3 +4,4 @@
 *.svg
 /*.rk
 /*.txt
+.DS_Store

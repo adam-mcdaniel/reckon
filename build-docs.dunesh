@@ -1,0 +1,12 @@
+cargo doc --no-deps;
+'rm -Rf docs;
+mv target/doc docs;
+
+"<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv=\"refresh\" content=\"0; url='./reckon/index.html'\" />
+  </head>
+</html>" >> docs/index.html;
+
+cp -r assets docs/reckon;
