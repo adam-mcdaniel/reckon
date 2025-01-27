@@ -1,1 +1,6 @@
 /target
+.reckon_history
+*.lock
+*.svg
+/*.rk
+/*.txt
