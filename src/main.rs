@@ -9,6 +9,8 @@ use tracing::{info, error};
 const RELEASE_STACK_SIZE_MB: usize = 512;
 const DEBUG_STACK_SIZE_MB: usize = RELEASE_STACK_SIZE_MB;
 
+const ABOUT: &str = "┌─────────────────────About──────────────────────┐\n           Hello, welcome to \u{1b}[93mReckon\u{1b}[m\u{1b}[0m!  \n       Written by: http://adam-mcdaniel.net       \n                                                  \n I wrote Reckon to be an easy to use, convenient  \n tool for writing programs like computer algebra  \n   systems, graph analyzers, or type-checkers!    \n└────────────────────────────────────────────────┘\n┌────────────────────Features────────────────────┐\n Reckon is a simple logic🧮 programming language   \n designed to be used either as a standalone tool  \n or as a library in a larger Rust project for     \n  performing logical inference💡 and reasoning.    \n                                                  \n It supports:                                     \n ☞ Rules, facts, and queries with horn clauses📯   \n ☞ Negation as failure🚫                           \n ☞ Unification and backtracking🔀                  \n ☞ Configurable search strategies🔎                \n ☞ A REPL for interactive use🔄                    \n ☞ Importing programs from files📂                 \n ☞ A simple interface as a library📚               \n└────────────────────────────────────────────────┘\n┌────────────────About the Author────────────────┐\n I'm a Comp💻 Sci🧪 PhD student at the University   \n of Tennessee. I'm in love with language design,  \n         compilers, and writing software!         \n                                                  \n      Check out my other projects on GitHub:      \n         https://github.com/adam-mcdaniel         \n└────────────────────────────────────────────────┘";
+
 /// The argument parser for the CLI.
 #[derive(Parser, Debug)]
 #[command(author, version, about = Some(COLORED_LOGO_1), long_about = Some(COLORED_LOGO_1), max_term_width=90)]
@@ -26,7 +28,11 @@ struct Args {
 fn repl(mut env: Env<impl Solver>) {
     use rustyline::error::ReadlineError;
     clear_screen();
-    println!("Welcome to...\n{}\n\nUse the REPL to enter your rules, queries, and search options.\nFor help, input \":help\".", COLORED_LOGO_1);
+    println!("Welcome to...\n");
+
+    print_logo(BG_2);
+
+    println!("\nUse the REPL to enter your rules, queries, and search options.\nFor help, input \":help\"\n");
     let mut envs = Vec::new();
 
     let default_entry = rgb_text(">>> ", (0, 255, 0));
@@ -62,6 +68,9 @@ fn repl(mut env: Env<impl Solver>) {
                                 error!("No environment to restore.");
                             }
                             continue;
+                        } else if line == ":a" || line == ":about" {
+                            println!("{}", ABOUT);
+                            continue;
                         } else if line == ":x" || line == ":examine" {
                             println!("{}", env);
                             continue;
@@ -92,13 +101,18 @@ fn repl(mut env: Env<impl Solver>) {
                             println!("Commands:");
                             println!("  :q, :quit    - Quit the REPL");
                             println!("  :i, :import  - Import a file");
-                            println!("  :s, :save    - Push the current environment to be restored later");
+                            println!("  :s, :save    - Push the current environment to be restored");
                             println!("  :r, :restore - Pop the last environment pushed");
                             println!("  :x, :examine - Print the environment");
                             println!("  :c, :clear   - Reset the environment");
                             println!("  :h, :help    - Show this help message");
                             continue;
                         }
+                    }
+
+                    if (line.trim().len() >= 2 && &line.trim()[0..2] == "//")
+                        || line.trim().chars().next() == Some('%') {
+                        continue;
                     }
 
 
@@ -152,8 +166,7 @@ fn cli() {
     let args = Args::parse();
 
     let mut env = Env::<MemoizingSolver>::new(&[])
-        .with_search_config(&SearchConfig::default().with_sorter(100, |_, query: &Query| query.size()));
-    
+        .with_search_config(&SearchConfig::default().with_sorter(100, |_, query: &Query| query.size()));    
     match args.input {
         Some(filename) => {
             if let Ok(program) = read_to_string(&filename) {
@@ -243,6 +256,17 @@ fn ansi_hsv(h: f64, s: f64, v: f64) -> String {
 }
 
 #[allow(dead_code)]
+fn ansi_rgb_bg(r: u8, g: u8, b: u8) -> String {
+    format!("\x1b[48;2;{};{};{}m", r, g, b)
+}
+
+#[allow(dead_code)]
+fn ansi_hsv_bg(h: f64, s: f64, v: f64) -> String {
+    let (r, g, b) = hsv_to_rgb((h, s, v));
+    ansi_rgb_bg(r, g, b)
+}
+
+#[allow(dead_code)]
 fn ansi_reset() -> String {
     "\x1b[0m".to_string()
 }
@@ -315,13 +339,14 @@ fn rgb_to_hsv(c: (u8, u8, u8)) -> (f64, f64, f64) {
 
 
 #[allow(dead_code)]
-fn gradient(text: impl Display, color1: (f64, f64, f64), color2: (f64, f64, f64)) -> String {
+fn gradient(text: impl Display, color1: (f64, f64, f64), color2: (f64, f64, f64), fg: bool) -> String {
     let mut result = String::new();
     let text = text.to_string();
+    let text = strip_ansi_codes(&text);
     
 
     let (mut hue, mut saturation, mut value) = color1;
-    let char_count = text.chars().filter(|c| !c.is_whitespace()).count();
+    let char_count = text.chars().filter(|c| !c.is_whitespace() || !fg).count();
     // let start_hue = color1.0.min(color2.0);
     // let end_hue = color1.0.max(color2.0);
     let start_hue = color1.0;
@@ -341,10 +366,18 @@ fn gradient(text: impl Display, color1: (f64, f64, f64), color2: (f64, f64, f64)
     let value_step = (end_value - start_value) / char_count as f64;
 
     for ch in text.chars() {
-        if ch.is_whitespace() {
+        if ch == '\n' {
+            // Print reset
+            result.push_str(&ansi_reset());
+            result.push(ch);
+        } else if ch.is_whitespace() && fg {
             result.push(ch);
         } else {
-            let ansi = ansi_hsv(hue, saturation, value);
+            let ansi = if fg {
+                ansi_hsv(hue, saturation, value)
+            } else {
+                ansi_hsv_bg(hue, saturation, value)
+            };
             
             result.push_str(&ansi);
             result.push(ch);
@@ -417,7 +450,6 @@ fn gradient_lines(text: impl Display, color1: (f64, f64, f64), color2: (f64, f64
                 result.push_str(&ansi);
                 result.push(ch);
                 result.push_str(&ansi_reset());
-
             }
         }
     }
@@ -425,7 +457,330 @@ fn gradient_lines(text: impl Display, color1: (f64, f64, f64), color2: (f64, f64
     result
 }
 
+fn ascii_art_get_size(art: &str) -> (usize, usize) {
+    let plain_art = strip_ansi_codes(art);
+    let lines: Vec<&str> = plain_art.lines().collect();
+    let width = lines.iter().map(|line| line.chars().count()).max().unwrap_or(0);
 
+    (width, lines.len())
+}
+
+fn pad_ascii_art(art: &str, new_width: usize, new_height: usize) -> String {
+    let mut result = String::new();
+    let plain_art = strip_ansi_codes(art);
+    let lines: Vec<&str> = art.lines().collect();
+    let plain_lines: Vec<&str> = plain_art.lines().collect();
+
+    let (_, height) = ascii_art_get_size(art);
+
+    let height_diff = new_height - height;
+
+    for _ in 0..height_diff / 2 {
+        for _ in 0..new_width {
+            result.push(' ');
+        }
+        result.push('\n');
+    }
+
+    // for line in lines {
+    for (line, plain_line) in lines.iter().zip(plain_lines.iter()) {
+        let plain_line_width = plain_line.chars().count();
+        let mut remaining_line_width = new_width - plain_line_width;
+        for _ in 0..remaining_line_width / 2 {
+            remaining_line_width -= 1;
+            result.push(' ');
+        }
+        result.push_str(line);
+        while remaining_line_width > 0 {
+            remaining_line_width -= 1;
+            result.push(' ');
+        }
+
+        result.push('\n');
+    }
+
+    while result.lines().count() < new_height {
+        for _ in 0..new_width {
+            result.push(' ');
+        }
+        result.push('\n');
+    }
+
+    let (test_width, test_height) = ascii_art_get_size(&result);
+    if test_width != new_width || test_height != new_height {
+        panic!("Padding failed: expected ({}, {}), got ({}, {})", new_width, new_height, test_width, test_height);
+    }
+
+    result
+}
+
+fn crop_ascii_art(art: &str, new_width: usize, new_height: usize) -> String {
+    let mut result = String::new();
+    let plain_art = strip_ansi_codes(art);
+    let plain_lines: Vec<&str> = plain_art.lines().collect();
+
+    let (width, height) = ascii_art_get_size(&plain_art);
+
+    let width_diff = width - new_width;
+    let height_diff = height - new_height;
+
+    for plain_line in plain_lines.iter().skip(height_diff/2).take(new_height) {
+        for ch in plain_line.chars().skip(width_diff/2).take(new_width) {
+            result.push(ch);
+        }
+
+        result.push('\n');
+    }
+
+    let (test_width, test_height) = ascii_art_get_size(&result);
+    if test_width != new_width || test_height != new_height {
+        panic!("Cropping failed: expected ({}, {}), got ({}, {})", new_width, new_height, test_width, test_height);
+    }
+
+    result
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Border {
+    top_left: char,
+    top_right: char,
+    bottom_left: char,
+    bottom_right: char,
+    horizontal: char,
+    vertical: char,
+}
+
+fn strip_ansi_codes(text: &str) -> String {
+    let mut result = String::new();
+    let mut chars = text.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            while let Some(ch) = chars.next() {
+                if ch == 'm' {
+                    break;
+                }
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+
+    result
+}
+
+fn ascii_art_with_border(art: &str, border: Border) -> String {
+    let mut result = String::new();
+    let lines: Vec<&str> = art.lines().collect();
+    let plain_art = strip_ansi_codes(art);
+    let plain_lines: Vec<&str> = plain_art.lines().collect();
+    
+    let width = plain_art.lines().map(|line| line.chars().count()).max().unwrap_or(0);
+
+    result.push_str(&ansi_reset());
+    result.push(border.top_left);
+    for _ in 0..width {
+        result.push_str(&ansi_reset());
+        result.push(border.horizontal);
+    }
+    result.push_str(&ansi_reset());
+    result.push(border.top_right);
+    result.push('\n');
+
+    for (line, plain_lines) in lines.iter().zip(plain_lines.iter()) {
+        result.push_str(&ansi_reset());
+        result.push(border.vertical);
+        result.push_str(line);
+        for _ in 0..width - plain_lines.chars().count() {
+            result.push(' ');
+        }
+        result.push_str(&ansi_reset());
+        result.push(border.vertical);
+        result.push('\n');
+    }
+
+    result.push_str(&ansi_reset());
+    result.push(border.bottom_left);
+    for _ in 0..width {
+        result.push_str(&ansi_reset());
+        result.push(border.horizontal);
+    }
+    result.push_str(&ansi_reset());
+    result.push(border.bottom_right);
+    result.push('\n');
+
+    result
+}
+
+fn get_last_ansi_code_at(art: &str, row: usize, col: usize) -> Option<String> {
+    let mut result = String::new();
+    let mut chars = art.chars();
+    let mut current_row = 0;
+    let mut current_col = 0;
+    let mut since_last_ansi = 0;
+    while let Some(ch) = chars.next() {
+        if current_row >= row && current_col >= col {
+            break;
+        }
+
+        if ch == '\x1b' {
+            result.clear();
+            result.push(ch);
+            while let Some(ch) = chars.next() {
+                result.push(ch);
+                if ch == 'm' {
+                    break;
+                }
+            }
+            since_last_ansi = 0;
+        } else {
+            if ch == '\n' {
+                current_row += 1;
+                current_col = 0;
+                result.clear();
+            } else {
+                current_col += 1;
+                since_last_ansi += 1;
+            }
+        }
+    }
+
+    if result.is_empty() || since_last_ansi > 1 {
+        None
+    } else {
+        Some(result)
+    }
+}
+
+fn reapply_ansi_to_plain(template: &str, colored: &str) -> String {
+    let mut result = String::new();
+    
+    let plain_template = strip_ansi_codes(template);
+
+    let (mut row, mut col) = (0, 0);
+    for ch in plain_template.chars() {
+        if ch == '\n' {
+            row += 1;
+            col = 0;
+        } else {
+            col += 1;
+        }
+
+        if let Some(ansi) = get_last_ansi_code_at(colored, row, col) {
+            result.push_str(&ansi);
+        } else if let Some(ansi) = get_last_ansi_code_at(template, row, col) {
+            result.push_str(&ansi);
+        } else {
+            result.push_str("\x1b[0m");
+        }
+
+        result.push(ch);
+    }
+
+    /*
+    while colored_chars.peek().is_some() {
+        let colored_char = colored_chars.next().unwrap();
+        if let Some(plain_char) = plain_chars.peek() {
+            if *plain_char == '\x1b' {
+
+                // Get the ANSI code
+                let mut ansi_code = String::new();
+                ansi_code.push(*plain_char);
+                while let Some(ch) = plain_chars.next() {
+                    ansi_code.push(ch);
+                    if ch == 'm' {
+                        break;
+                    }
+                }
+                result.push_str(&ansi_code);
+            }
+        }
+
+        if colored_char == '\x1b' {
+            // Get the ANSI code
+            let mut ansi_code = String::new();
+            ansi_code.push(colored_char);
+            while let Some(ch) = colored_chars.next() {
+                ansi_code.push(ch);
+                if ch == 'm' {
+                    break;
+                }
+            }
+            result.push_str(&ansi_code);
+        } else if let Some(plain_char) = plain_chars.next() {
+            result.push(plain_char);
+        }
+    }
+    */
+
+
+    result
+}
+
+fn ascii_art_fg_bg(fg_art: &str, bg_art: &str) -> String {
+    let mut result = String::new();
+    let (bg_width, bg_height) = ascii_art_get_size(bg_art);
+
+    let bg_art = pad_ascii_art(bg_art, bg_width, bg_height);
+    let fg_art = pad_ascii_art(fg_art, bg_width, bg_height);
+    
+    let plain_fg_art = strip_ansi_codes(&fg_art);
+    let plain_bg_art = strip_ansi_codes(&bg_art);
+
+    if plain_fg_art.chars().count() != plain_bg_art.chars().count() {
+        panic!("Art lengths do not match: {} vs {}", plain_fg_art.chars().count(), plain_bg_art.chars().count());
+    }
+
+    for (fg_char, bg_char) in plain_fg_art.chars().zip(plain_bg_art.chars()) {
+        if fg_char.is_whitespace() {
+            result.push(bg_char);
+        } else {
+            result.push(fg_char);
+        }
+    }
+
+    // Reapply the background ANSI codes
+    result = reapply_ansi_to_plain(&result, &bg_art);
+    result = reapply_ansi_to_plain(&result, &fg_art);
+
+    result
+}
+
+fn print_logo(bg: &str) {
+    let border = Border {
+        top_left: '╔',
+        top_right: '╗',
+        bottom_left: '╚',
+        bottom_right: '╝',
+        horizontal: '═',
+        vertical: '║',
+    };
+    let mut logo = COLORED_LOGO_1.to_string();
+    let (width, height) = ascii_art_get_size(&logo);
+    
+    logo = pad_ascii_art(&logo, width + 2, height + 2);
+    logo = ascii_art_with_border(&logo, border);
+    logo = logo.replace(' ', "\x08");
+    logo = format!("{}{}", ansi_reset(), logo);
+    if !bg.is_empty() {
+        let (fg_width, fg_height) = ascii_art_get_size(&logo);
+        
+        let bg_width = fg_width + 6;
+        let bg_height = fg_height + 6;
+    
+        let bg = crop_ascii_art(bg, bg_width, bg_height);
+    
+        // Apply colors to the bg
+        // let bg = rgb_text(&bg, (255, 255, 255));
+        let bg = gradient(&bg, (0.0, 1.0, 1.0), (240.0, 1.0, 1.0), true);
+    
+    
+        logo = ascii_art_fg_bg(&logo, &bg);
+    }
+
+    logo = logo.replace('\x08', " ");
+    println!("{}", logo);
+
+}
 
 fn main() {
     // Set up logging with the `tracing` crate, with debug level logging.
@@ -449,344 +804,98 @@ fn main() {
 
     // Wait for the thread to finish.
     child.join().unwrap();
-
-    // eval(r#"
-    //     options(
-    //         depth_limit=3000,
-    //         traversal="breadth_first",
-    //         pruning=false,
-    //         require_rule_head_match=true,
-    //         reduce_query=false,
-    //         solution_limit=5
-    //     ).
-
-    //     // Define the natural numbers
-    //     // 
-    //     // NOTE: s(X) means the successor of X
-    //     is_nat(s(X)) :- is_nat(X). // <-- s(X) is a natural number if X is a natural number
-    //     is_nat(0).                 // <-- 0 is a natural number
-
-
-
-    //     // Define addition of natural numbers
-    //     add(X, 0, X) :- is_nat(X).          // <-- X + 0 = X
-    //     add(X, s(Y), s(Z)) :- add(X, Y, Z). // <-- X + s(Y) = s(X + Y)
-
-
-    //     // Query: What are X and Y such that X + Y = 3?
-    //     ?- add(X, Y, s(s(s(0)))). // <-- Find X and Y such that X + Y = 3
-
-
-    //     // Define multiplication of natural numbers
-    //     mul(X, 0, 0) :- is_nat(X).
-    //     mul(X, s(Y), Z) :- mul(X, Y, W), add(X, W, Z).
-
-    //     // Query: What are X and Y such that X + Y = 4, and X * Y != 4?
-    //     ?- mul(X, Y, s(s(s(s(0))))). // <-- Find X and Y such that X + Y = 4, and X * Y != 4
-
-    //     options(solution_limit=1).
-
-    //     // Define less-than-or-equal-to relation on natural numbers
-    //     leq(0, X) :- is_nat(X).
-    //     leq(s(X), s(Y)) :- leq(X, Y).
-
-    //     // Query: What are A, B, and C such that A + B 
-    //     ?- add(A, B, C), ~add(A, A, s(s(s(s(0))))), leq(A, s(s(s(0)))), leq(B, s(s(s(0)))), leq(C, s(s(s(s(0))))).
-    // "#, &mut env).unwrap();
-    /*
-    eval(r#"
-        options(
-            depth_limit=3000,
-            traversal="breadth_first",
-            pruning=false,
-            require_rule_head_match=true,
-            reduce_query=false,
-            solution_limit=5
-        ).
-
-
-        is_nat(s(X)) :- is_nat(X).
-        is_nat(0).
-        add(X, s(Y), s(Z)) :- add(X, Y, Z).
-        add(X, 0, X) :- is_nat(X).
-        leq(0, X) :- is_nat(X).
-        leq(s(X), s(Y)) :- leq(X, Y).
-        geq(X, Y) :- leq(Y, X).
-        eq(X, Y) :- leq(X, Y), leq(Y, X).
-        neq(X, Y) :- ~eq(X, Y).
-        lt(X, Y) :- leq(X, Y), ~eq(X, Y).
-        gt(X, Y) :- geq(X, Y), ~eq(X, Y).
-
-
-        mul(X, s(Y), Z) :- mul(X, Y, W), add(X, W, Z).
-        mul(X, 0, 0) :- is_nat(X).
-
-        square(X, Y) :- mul(X, X, Y).
-
-        ?- add(A, B, s(s(s(s(0))))).
-
-
-        ?- ~add(A, A, s(s(s(s(0))))), add(A, B, C), leq(A, s(s(s(0)))), leq(B, s(s(s(0)))), leq(C, s(s(s(s(0))))).
-
-        options(solution_limit=1).
-
-        ?- square(X, s(s(0))).
-
-        ?- square(s(s(0)), X), square(X, Y).
-    "#, &mut env).unwrap();
-     */
-
-    // Now for some *interesting* programs
-    // Write a system F type checker
-    /*
-eval(r#"
-options(
-    depth_limit=50,
-    width_limit=5,
-    traversal="breadth_first",
-    pruning=false,
-    require_rule_head_match=true,
-    reduce_query=false,
-    solution_limit=1,
-    clean_memoization=true
-).
-
-term(var(X)) :- atom(X).
-
-atom(X).
-
-% Lambda abstraction
-term(abs(X, T, Body)) :- atom(X), type(T), term(Body).
-
-% Application
-term(app(Func, Arg)) :- term(Func), term(Arg).
-
-% Type abstraction (universal quantification: ΛX. T)
-term(tabs(TVar, Body)) :- atom(TVar), term(Body).
-
-% Type application (specializing a polymorphic type: T [τ])
-term(tapp(Func, T)) :- term(Func), type(T).
-
-% Base types
-type(base(T)) :- atom(T). % Example: `int`, `bool`
-
-% Arrow types (functions)
-type(arrow(T1, T2)) :- type(T1), type(T2). % Example: T1 -> T2
-
-% Universal quantifiers (∀X. T)
-type(forall(TVar, T)) :- atom(TVar), type(T).
-
-bind(X, T) :- atom(X), type(T).
-
-context(nil).
-context([]).
-context([bind(X, T) | Rest]) :- atom(X), type(T), context(Rest).
-
-member(X, [X | _]).
-member(X, [_ | Rest]) :- member(X, Rest).
-
-
-has_type(Ctx, var(X), T) :-
-    member(bind(X, T), Ctx).
-
-has_type(Ctx, abs(X, T, Body), arrow(T, TBody)) :-
-    has_type([bind(X, T) | Ctx], Body, TBody).
-
-has_type(Ctx, app(Func, Arg), T2) :-
-    has_type(Ctx, Func, arrow(T1, T2)),
-    has_type(Ctx, Arg, T1).
-
-has_type(Ctx, tabs(TVar, Body), forall(TVar, TBody)) :-
-    has_type(Ctx, Body, TBody).
-
-has_type(Ctx, tapp(Func, Type), TSubstituted) :-
-    has_type(Ctx, Func, forall(TVar, TBody)),
-    substitute(TBody, TVar, Type, TSubstituted).
-
-eq(T1, T1).
-eq(base(T1), base(T2)) :- eq(T1, T2).
-eq(arrow(T1, T2), arrow(T3, T4)) :- eq(T1, T3), eq(T2, T4).
-eq(forall(X, T1), forall(X, T2)) :-
-    eq(T1, T2). % Bodies of the quantified types must be equal
-neq(T1, T2) :- ~eq(T1, T2).
-
-% Substitution base case: If the type is the type variable being substituted, replace it.
-substitute(base(T), TVar, Replacement, Replacement) :-
-    eq(T, TVar).
-
-% If the type is not the variable being replaced, leave it unchanged.
-substitute(base(T), TVar, _, base(T)) :-
-    eq(T, TVar).
-
-% For arrow types, substitute in both the domain and codomain.
-substitute(arrow(T1, T2), TVar, Replacement, arrow(T1Sub, T2Sub)) :-
-    substitute(T1, TVar, Replacement, T1Sub),
-    substitute(T2, TVar, Replacement, T2Sub).
-
-% For universal quantifiers, substitute in the body only if the bound variable is not the same.
-substitute(forall(TVarInner, TBody), TVar, Replacement, forall(TVarInner, TBodySub)) :-
-    neq(TVar, TVarInner), % Avoid variable capture
-    substitute(TBody, TVar, Replacement, TBodySub).
-
-?- has_type([], abs(x, A, abs(y, base(float), var(x))), T).
-"#, &mut env).unwrap();
-*/
-
-    /*
-?- context([bind(var(x), base(float)) | [bind(var(y), base(int))]]).
-?- member(bind(var(x), base(float)), [bind(var(x), base(float)) | [bind(var(y), base(int))]]).
-?- has_type([bind(x, base(float)) | [bind(y, base(int))]], var(x), T).
-
-    let rules: Vec<Rule> = vec![
-        "is_nat(s(X)) :- is_nat(X).".parse().unwrap(),
-        "is_nat(0).".parse().unwrap(),
-        "add(X, s(Y), s(Z)) :- add(X, Y, Z).".parse().unwrap(),
-        "add(X, 0, X) :- is_nat(X).".parse().unwrap(),
-        "leq(0, X) :- is_nat(X).".parse().unwrap(),
-        "leq(s(X), s(Y)) :- leq(X, Y).".parse().unwrap(),
-        
-        "geq(X, Y) :- leq(Y, X).".parse().unwrap(),
-        "eq(X, Y) :- leq(X, Y), leq(Y, X).".parse().unwrap(),
-        "neq(X, Y) :- ~eq(X, Y).".parse().unwrap(),
-
-        "lt(X, Y) :- leq(X, Y), ~eq(X, Y).".parse().unwrap(),
-        "gt(X, Y) :- geq(X, Y), ~eq(X, Y).".parse().unwrap(),
-        
-        
-        "mul(X, s(Y), Z) :- mul(X, Y, W), add(X, W, Z).".parse().unwrap(),
-        "mul(X, 0, 0) :- is_nat(X).".parse().unwrap(),
-        "square(X, Y) :- mul(X, X, Y).".parse().unwrap(),
-    ];
-
-
-    let query: Query = "?- ~add(A, A, s(s(s(s(0))))), add(A, B, C), leq(A, s(s(s(0)))), leq(B, s(s(s(0)))), leq(C, s(s(s(s(0))))).".parse().unwrap();
-
-    let mut env = Env::<DefaultSolver>::new(&rules);
-
-    let solution = env.prove_true(&query).unwrap();
-
-    println!("{}", solution);
-     */
-
-
-
-    /*
-    // Set up logging with the `tracing` crate, with debug level logging.
-    let _ = tracing_subscriber::fmt::SubscriberBuilder::default()
-        .with_max_level(tracing::Level::INFO)
-        .init();
-    
-    let rules: Vec<Rule> = vec![
-        "is_nat(s(X)) :- is_nat(X).".parse().unwrap(),
-        "is_nat(0).".parse().unwrap(),
-        "add(X, s(Y), s(Z)) :- add(X, Y, Z).".parse().unwrap(),
-        "add(X, 0, X) :- is_nat(X).".parse().unwrap(),
-        "leq(0, X) :- is_nat(X).".parse().unwrap(),
-        "leq(s(X), s(Y)) :- leq(X, Y).".parse().unwrap(),
-        
-        "geq(X, Y) :- leq(Y, X).".parse().unwrap(),
-        "eq(X, Y) :- leq(X, Y), leq(Y, X).".parse().unwrap(),
-        "neq(X, Y) :- ~eq(X, Y).".parse().unwrap(),
-
-        "lt(X, Y) :- leq(X, Y), ~eq(X, Y).".parse().unwrap(),
-        "gt(X, Y) :- geq(X, Y), ~eq(X, Y).".parse().unwrap(),
-        
-        
-        "mul(X, s(Y), Z) :- mul(X, Y, W), add(X, W, Z).".parse().unwrap(),
-        "mul(X, 0, 0) :- is_nat(X).".parse().unwrap(),
-        "square(X, Y) :- mul(X, X, Y).".parse().unwrap(),
-        // "isprime(X, Y, Z) :- is_nat(X), is_nat(Y), is_nat(Z), ~eq(X, s(0)), ~eq(Y, s(0)),  ~eq(X, 0), ~eq(Y, 0), ~eq(Z, 0), ~mul(X, Y, Z).".parse().unwrap(),
-    ];
-
-    // let query: Query = "?- add(A, B, s(s(s(s(0))))).".parse().unwrap();
-    let mut n = String::from("0");
-    for _ in 0..16 {
-        n = format!("s({})", n);
-    }
-
-    let query: Query = format!("?- ~add(A, A, s(s(s(s(0))))), add(A, B, C), leq(A, s(s(s(0)))), leq(B, s(s(s(0)))), leq(C, s(s(s(s(0))))).").parse().unwrap();
-    // let mut query: Query = format!(r#"?- neq(A, s(0)), mul(A, B, {n})."#).parse().unwrap();
-    // let mut query: Query = format!(r#"?- lt(A, {n})."#).parse().unwrap();
-        
-    // let query: Query = "?- neq(A, s(0)), neq(B, s(0)), mul(A, B, s(s(s(s(0))))).".parse().unwrap();
-    // let query: Query = "?- isprime(X, Y, s(s(s(0)))).".parse().unwrap();
-
-    // &SearchConfig::default()
-    //         // .with_step_limit(1000)
-    //         .with_traversal(Traversal::BreadthFirst)
-    //         // .with_traversal(Traversal::DepthFirst)
-    //         .with_depth_limit(3000)
-    //         .with_width_limit(5)
-    //         .with_pruning(false)
-    //         // .with_sorter(100, |_, query: &Query| query.size())
-    //         // .with_sorter(100, |_, query: &Query| usize::MAX - query.size())
-    //         .with_require_rule_head_match(true)
-    //         .with_reduce_query(false)
-    //         .with_solution_limit(5)
-
-    let mut config = SearchConfig::default();
-    config.parse(r#"
-        options(
-            depth_limit=1000,
-            traversal="breadth_first",
-            pruning=false,
-            require_rule_head_match=true,
-            reduce_query=false,
-            solution_limit=5
-        ).
-    "#).unwrap();
-
-    let mut env = Env::<DefaultSolver>::new(&rules)
-        .with_search_config(&config);
-
-    // println!("{}", query);
-    // println!("{}", env.prove_true(&mut query).unwrap());
-    // return;
-
-    // match env.prove_true(&query) {
-    //     Ok(solution) => {
-    //         println!("{}", solution);
-    //     }
-    //     Err(terms) => {
-    //         error!("Could not find solution for query: ");
-    //         for term in terms {
-    //             error!("{}", term);
-    //         }
-    //     }
-    // }
-    let (solutions, duration) = time_it(|| {
-        env.find_solutions(&query)
-    });
-    // let solutions = env.find_solutions(&query, 5);
-
-    match solutions {
-        Ok(solutions) => {
-            info!("Found {} solutions in {:?}", solutions.len(), duration);
-            for (i, solution) in solutions.iter().enumerate() {
-                info!("Solution #{}: ", i + 1);
-                for (var, term) in solution.var_bindings() {
-                    let peano = peano_to_int(&term.to_string());
-                    match peano {
-                        Some(n) => {
-                            info!("{} = (peano for {}) {}", var, n, term);
-                        },
-                        None => {
-                            info!("{} = {}", var, term);
-                        }
-                    }
-                    // Print the integer value of the Peano number
-                    
-
-                }
-            }
-        },
-        Err(terms) => {
-            error!("Could not find solution for query: ");
-            for term in terms {
-                error!("{}", term);
-            }
-        }
-    }
-
-    */
 }
+
+#[allow(dead_code)]
+const BG_1: &str = r#" _______________________________________________________________________ 
+|       (_      (_      (_      (_      (_      (_      (_      (_      |
+|        _)      _)      _)      _)      _)      _)      _)      _)     |
+|  _   _(  _   _(  _   _(  _   _(  _   _(  _   _(  _   _(  _   _(  _   _|
+|_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |
+|      _)      _)      _)      _)      _)      _)      _)      _)       |
+|     (_      (_      (_      (_      (_      (_      (_      (_        |
+|_   _  )_   _  )_   _  )_   _  )_   _  )_   _  )_   _  )_   _  )_   _  |
+| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_|
+|       (_      (_      (_      (_      (_      (_      (_      (_      |
+|        _)      _)      _)      _)      _)      _)      _)      _)     |
+|  _   _(  _   _(  _   _(  _   _(  _   _(  _   _(  _   _(  _   _(  _   _|
+|_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |
+|      _)      _)      _)      _)      _)      _)      _)      _)       |
+|     (_      (_      (_      (_      (_      (_      (_      (_        |
+|_   _  )_   _  )_   _  )_   _  )_   _  )_   _  )_   _  )_   _  )_   _  |
+| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_| |_|
+|       (_      (_      (_      (_      (_      (_      (_      (_      |
+|        _)      _)      _)      _)      _)      _)      _)      _)     |
+|_______(_______(_______(_______(_______(_______(_______(_______(_______|"#;
+
+#[allow(dead_code)]
+const BG_2: &str = r#" / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \_
+/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \__
+\ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / _
+ \____/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \____/ / 
+ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \_
+/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \__
+\ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / _
+ \____/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \____/ / 
+ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \_
+/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \__
+\ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / _
+ \____/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \____/ / 
+ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \_
+/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \__
+\ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / _
+ \____/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \____/ / 
+ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \_
+/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \__
+\ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / _
+ \____/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \____/ / 
+ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \__/ / __ \ \_
+/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \____/ /  \ \__"#;
+    // println!("{}", ascii_art_with_border(COLORED_LOGO_1, border));
+    // println!("{}", ascii_art_with_border(COLORED_LOGO_1, border2));
+    // println!("{}", ascii_art_with_border(&pad_ascii_art(COLORED_LOGO_1, w + 4, h + 4), border2));
+    
+#[allow(dead_code)]
+const BG_3: &str = r#"\_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_
+/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ 
+\_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_
+/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ 
+\_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_
+/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ 
+\_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_
+/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ 
+\_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_
+/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ 
+\_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_
+/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ 
+\_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_
+/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ 
+\_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_
+/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ 
+\_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_
+/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/"#;
+
+#[allow(dead_code)]
+const BG_4: &str = r#"  \__   \__   \__   \__   \__   \__   \__   \__   \__   \__   \__   \_
+__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/ 
+  \     \     \     \     \     \     \     \     \     \     \     \
+__/   __/   __/   __/   __/   __/   __/   __/   __/   __/   __/   __/
+  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \_
+__/     /     /     /     /     /     /     /     /     /     /     / 
+  \__   \__   \__   \__   \__   \__   \__   \__   \__   \__   \__   \_
+__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/ 
+  \     \     \     \     \     \     \     \     \     \     \     \
+__/   __/   __/   __/   __/   __/   __/   __/   __/   __/   __/   __/
+  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \_
+__/     /     /     /     /     /     /     /     /     /     /     / 
+  \__   \__   \__   \__   \__   \__   \__   \__   \__   \__   \__   \_
+__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/ 
+  \     \     \     \     \     \     \     \     \     \     \     \
+__/   __/   __/   __/   __/   __/   __/   __/   __/   __/   __/   __/
+  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \_
+__/     /     /     /     /     /     /     /     /     /     /     / 
+  \__   \__   \__   \__   \__   \__   \__   \__   \__   \__   \__   \_
+__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/ 
+  \     \     \     \     \     \     \     \     \     \     \     \
+__/   __/   __/   __/   __/   __/   __/   __/   __/   __/   __/   __/
+  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \_"#;
