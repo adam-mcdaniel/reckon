@@ -4,7 +4,7 @@ use std::collections::{HashSet, HashMap, VecDeque};
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::hash::Hash;
 use std::str::FromStr;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use super::*;
 use crate::Symbol;
@@ -151,7 +151,13 @@ impl Term {
             Term::Complement(term) => *term.clone(),
             Term::True => Term::False,
             Term::False => Term::True,
-            _ => Term::Complement(Box::new(self.clone())),
+            _ => {
+                if !self.is_app() {
+                    warn!("Negating non-application term {}, this could result in explosion💣!", self);
+                }
+
+                Term::Complement(Box::new(self.clone()))
+            },
         }
         // Term::Complement(Box::new(self.clone()))
     }
@@ -191,6 +197,11 @@ impl Term {
         }
     }
 
+    /// Is this term an application term?
+    pub fn is_app(&self) -> bool {
+        matches!(self, Term::App(_))
+    }
+
     /// A helper function for unifying two terms.
     /// 
     /// It will attempt to unify the two terms, and return an error if they cannot be unified.
@@ -221,6 +232,8 @@ impl Term {
         debug!("Unifying {} with {}", self, other);
 
         match (self, other) {
+            (Sym(sym1), Sym(sym2)) if sym1 == sym2 && !negated => {}
+
             (Var(var1), Var(var2)) if !negated => {
                 // If the variables are the same, they are already unified
                 if var1 == var2 {
@@ -233,6 +246,13 @@ impl Term {
                 } else if let Some(term) = env.get_var(*var2).cloned() {
                     // term.unify_in_place_helper(&Var(*var1), env)?;
                     Var(*var1).unify_in_place_helper(&term, env, negated)?;
+                } else if negated {
+                    // Unify the complement of the variables to each other
+                    let mut complement1 = Complement(Box::new(Var(*var1)));
+                    let mut complement2 = Complement(Box::new(Var(*var2)));
+
+                    complement1.unify_in_place_helper(&Var(*var2), env, negated)?;
+                    complement2.unify_in_place_helper(&Var(*var1), env, negated)?;
                 } else {
                     // Bind the variable to the other term
                     env.set_var(*var1, other.clone());
@@ -274,23 +294,23 @@ impl Term {
             (False, Complement(term)) => {
                 term.unify(&True, env, negated)?;
             }
-            (Complement(term), term2) => {
-                if let Ok(()) = term.unify_in_place(term2, env, !negated) {
-                    return Ok(());
-                }
-                return err(Complement(term.clone()), term2);
-            }
-            (term1, Complement(term)) => {
-                if let Ok(()) = term1.unify_in_place(term, env, !negated) {
-                    return Ok(());
-                }
-                return err(term1.clone(), &Complement(term.clone()));
-                // if let Ok(term) = term1.unify(term, env) {
-                //     return err(term1.clone(), &Complement(Box::new(term)));
-                // } else {
-                //     return Ok(());
-                // }
-            }
+            // (Complement(term), term2) => {
+            //     if let Ok(()) = term.unify_in_place(term2, env, !negated) {
+            //         return Ok(());
+            //     }
+            //     return err(Complement(term.clone()), term2);
+            // }
+            // (term1, Complement(term)) => {
+            //     if let Ok(()) = term1.unify_in_place(term, env, !negated) {
+            //         return Ok(());
+            //     }
+            //     return err(term1.clone(), &Complement(term.clone()));
+            //     // if let Ok(term) = term1.unify(term, env) {
+            //     //     return err(term1.clone(), &Complement(Box::new(term)));
+            //     // } else {
+            //     //     return Ok(());
+            //     // }
+            // }
 
             (Int(n1), Int(n2)) if n1 == n2 && !negated => {
                 info!("Unifying integers: {} == {}", n1, n2);
@@ -335,7 +355,7 @@ impl Term {
     }
 
     /// Does this term contain any variables?
-    pub fn has_used_vars(&self) -> bool {
+    pub fn has_vars(&self) -> bool {
         use Term::*;
 
         let mut has_found = false;
@@ -585,7 +605,7 @@ impl FromStr for Term {
 /// 
 /// The function name is a symbol, and the arguments are logical terms.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct AppTerm {
+pub(super) struct AppTerm {
     /// The name of the function to apply
     pub func: Symbol,
     /// The terms to apply the function to
