@@ -384,8 +384,8 @@ impl<S> Env<S> where S: Solver {
     }
     
     /// Supply a new search configuration for the environment.
-    pub fn with_search_config(mut self, search_config: &SearchConfig<S>) -> Self {
-        self.search_config = search_config.clone();
+    pub fn with_search_config(mut self, search_config: SearchConfig<S>) -> Self {
+        self.search_config = search_config;
         self
     }
 
@@ -1271,6 +1271,24 @@ impl Display for Solution {
     }
 }
 
+impl IntoIterator for Solution {
+    type Item = (Var, Term);
+    type IntoIter = std::collections::btree_map::IntoIter<Var, Term>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.var_bindings.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a Solution {
+    type Item = (&'a Var, &'a Term);
+    type IntoIter = std::collections::btree_map::Iter<'a, Var, Term>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.var_bindings.iter()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -1281,6 +1299,131 @@ mod test {
         let result = f();
         let duration = start.elapsed();
         (result, duration)
+    }
+
+    #[test]
+    fn test_example() {
+        // Define some rules to use for inference
+        let rules: Vec<Rule> = vec![
+            "is_nat(s(X)) :- is_nat(X).".parse().unwrap(),
+            "is_nat(0).".parse().unwrap(),
+            "add(X, s(Y), s(Z)) :- add(X, Y, Z).".parse().unwrap(),
+            "add(X, 0, X) :- is_nat(X).".parse().unwrap(),
+            "leq(0, X) :- is_nat(X).".parse().unwrap(),
+            "leq(s(X), s(Y)) :- leq(X, Y).".parse().unwrap(),
+            
+            "geq(X, Y) :- leq(Y, X).".parse().unwrap(),
+            "eq(X, Y) :- leq(X, Y), leq(Y, X).".parse().unwrap(),
+            "neq(X, Y) :- ~eq(X, Y).".parse().unwrap(),
+            
+            
+            "mul(X, s(Y), Z) :- mul(X, Y, W), add(X, W, Z).".parse().unwrap(),
+            "mul(X, 0, 0) :- is_nat(X).".parse().unwrap(),
+        ];
+    
+        // Create a new environment with the rules
+        let mut env = Env::<DefaultSolver>::new(&rules)
+            // Set the search configuration to limit the number of solutions to 4
+            .with_search_config(SearchConfig::default().with_solution_limit(4));
+    
+        // Define a query to find two numbers that add to 4
+        let query: Query = "?- add(A, B, s(s(s(s(0))))).".parse().unwrap();
+    
+    
+        // Find solutions to the query
+        match env.find_solutions(&query) {
+            Ok(solutions) => {
+                // For each solution found, print the variable bindings
+                for (i, solution) in solutions.iter().enumerate() {
+                    println!("Solution #{}: ", i + 1);
+                    for (var, binding) in solution {
+                        println!("{} = {}", var, binding);
+                    }
+                }
+            }
+            // Unsolved goals
+            Err(e) => eprintln!("Unproven terms: {:?}", e)
+        }
+    
+        println!();
+    
+        // Alternatively, you can use the `prove_true` method to find a single solution
+        match env.prove_true(&query) {
+            Ok(solution) => {
+                println!("Found proof: ");
+                println!("{}", solution);
+            }
+            Err(e) => eprintln!("Unproven terms: {:?}", e)
+        }
+    
+        // You can also use the `prove_false` method to check if a query is false
+        match env.prove_false(&query) {
+            Ok(_) => println!("Query is false"),
+            Err(_) => eprintln!("Query is true, could not disprove"),
+        }
+    }
+
+    #[test]
+    fn test_example2() {
+
+        // Define some rules to use for inference
+        let rules: Vec<Rule> = vec![
+            "is_nat(s(X)) :- is_nat(X).".parse().unwrap(),
+            "is_nat(0).".parse().unwrap(),
+            "add(X, s(Y), s(Z)) :- add(X, Y, Z).".parse().unwrap(),
+            "add(X, 0, X) :- is_nat(X).".parse().unwrap(),
+        ];
+
+        // Create a new environment with the rules
+        let mut env = Env::<DefaultSolver>::new(&rules)
+            // Set the solution limit to 4 for the following queries
+            .with_search_config(SearchConfig::default().with_solution_limit(4));
+
+
+        // Define a query to find two numbers that add to 4
+        let query: Query = "?- add(A, B, s(s(s(s(0))))).".parse().unwrap();
+
+        // Alternatively, find multiple solutions to the query
+        match env.find_solutions(&query) {
+            Ok(solutions) => {
+                // For each solution found, print the variable bindings
+                for (i, solution) in solutions.iter().enumerate() {
+                    println!("Solution #{}: ", i + 1);
+                    for (var, binding) in solution {
+                        println!("{} = {}", var, binding);
+                    }
+                }
+            }
+            // Unsolved goals
+            Err(e) => eprintln!("Unproven terms: {:?}", e)
+        }
+    }
+
+    #[test]
+    fn test_example3() {
+        // Define some rules to use for inference
+        let rules: Vec<Rule> = vec![
+            "is_nat(s(X)) :- is_nat(X).".parse().unwrap(),
+            "is_nat(0).".parse().unwrap(),
+            "add(X, s(Y), s(Z)) :- add(X, Y, Z).".parse().unwrap(),
+            "add(X, 0, X) :- is_nat(X).".parse().unwrap(),
+        ];
+
+        // Create a new environment with the rules
+        let mut env = Env::<DefaultSolver>::new(&rules);
+
+        // Define a query to find two numbers that add to 4
+        let query: Query = "?- add(A, B, s(s(s(s(0))))).".parse().unwrap();
+
+        // You can use the `prove_true` method to find a single solution,
+        // or the `prove_false` method to check if the query is false.
+        match env.prove_true(&query) {
+            Ok(solution) => {
+                println!("Found proof: ");
+                println!("{}", solution);
+            }
+            Err(e) => eprintln!("Unproven terms: {:?}", e)
+        }
     }
 
     #[test]
@@ -1301,7 +1444,6 @@ mod test {
             "mul(X, s(Y), Z) :- mul(X, Y, W), add(X, W, Z).".parse().unwrap(),
             "mul(X, 0, 0) :- is_nat(X).".parse().unwrap(),
             "square(X, Y) :- mul(X, X, Y).".parse().unwrap(),
-            // "isprime(X, Y, Z) :- is_nat(X), is_nat(Y), is_nat(Z), ~eq(X, s(0)), ~eq(Y, s(0)),  ~eq(X, 0), ~eq(Y, 0), ~eq(Z, 0), ~mul(X, Y, Z).".parse().unwrap(),
         ];
 
         // let query: Query = "?- add(A, B, s(s(s(s(0))))).".parse().unwrap();
@@ -1319,7 +1461,7 @@ mod test {
 
         let mut env = Env::<DefaultSolver>::new(&rules)
             .with_search_config(
-                &SearchConfig::default()
+                SearchConfig::default()
                     // .with_step_limit(1000)
                     .with_traversal(Traversal::BreadthFirst)
                     // .with_traversal(Traversal::DepthFirst)

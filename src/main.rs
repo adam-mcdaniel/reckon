@@ -166,7 +166,7 @@ fn cli() {
     let args = Args::parse();
 
     let mut env = Env::<MemoizingSolver>::new(&[])
-        .with_search_config(&SearchConfig::default().with_sorter(100, |_, query: &Query| query.size()));    
+        .with_search_config(SearchConfig::default().with_sorter(100, |_, query: &Query| query.size()));    
     match args.input {
         Some(filename) => {
             if let Ok(program) = read_to_string(&filename) {

@@ -351,7 +351,7 @@
 //! &lt;div align="center"&gt;
 //!   &lt;h1&gt;🧮💡&lt;b&gt;The Reckon Programming Language&lt;/b&gt;💭📐&lt;/h1&gt;
 //!   &lt;p&gt;
-//!     &lt;strong&gt;A reasonable language for reasoning tasks!&lt;/strong&gt;
+//!     &lt;strong&gt;A reasonable language for your reasoning tasks!&lt;/strong&gt;
 //!   &lt;/p&gt;
 //!   &lt;p float="left"&gt;
 //!     &lt;img src="assets/welcome-cropped.png" width="51%" height="100%"/&gt;
@@ -363,14 +363,14 @@
 //! 
 //! Reckon is a simple logic🧮 programming language designed to be used either as a standalone tool or as a library in a larger Rust project for performing logical inference💡 and reasoning.    
 //!
-//! It supports:                                     
-//! ☞ Rules, facts, and queries with horn clauses📯   
-//! ☞ Negation as failure🚫                           
-//! ☞ Unification and backtracking🔀                  
-//! ☞ Configurable search strategies🔎                
-//! ☞ A REPL for interactive use🔄                    
-//! ☞ Importing programs from files📂                 
-//! ☞ A simple interface as a library📚            
+//! It supports:
+//! ☞ Rules, facts, and queries with horn clauses📯
+//! ☞ Negation as failure🚫   
+//! ☞ Unification and backtracking🔀
+//! ☞ Configurable search strategies🔎
+//! ☞ A REPL for interactive use🔄
+//! ☞ Importing programs from files📂
+//! ☞ A simple interface as a library📚
 
 </span><span class="kw">mod </span>solvers;
 <span class="kw">pub use </span>solvers::<span class="kw-2">*</span>;
@@ -379,7 +379,7 @@
 <span class="kw">pub use </span>symbol::<span class="kw-2">*</span>;
 
 <span class="kw">mod </span>parse;
-<span class="kw">pub use </span>parse::<span class="kw-2">*</span>;
+<span class="kw">use </span>parse::<span class="kw-2">*</span>;
 
 <span class="kw">mod </span>env;
 <span class="kw">pub use </span>env::<span class="kw-2">*</span>;

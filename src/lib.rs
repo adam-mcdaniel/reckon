@@ -3,7 +3,7 @@
 //! <div align="center">
 //!   <h1>🧮💡<b>The Reckon Programming Language</b>💭📐</h1>
 //!   <p>
-//!     <strong>A reasonable language for reasoning tasks!</strong>
+//!     <strong>A reasonable language for your reasoning tasks!</strong>
 //!   </p>
 //!   <p float="left">
 //!     <img src="assets/welcome-cropped.png" width="51%" height="100%"/>
