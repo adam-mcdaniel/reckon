@@ -32,8 +32,8 @@ The language is still in its early stages of development, so there are many feat
 ## Getting Started
 
 To get started with Reckon, you'll need to have the following installed on your machine:
-- [The Rust Programming Language](https:%www.rust-lang.org/tools/install)
-- [Cargo](https:%doc.rust-lang.org/cargo/getting-started/installation.html)
+- [The Rust Programming Language](https://www.rust-lang.org/tools/install)
+- [Cargo](https://doc.rust-lang.org/cargo/getting-started/installation.html)
 
 Once you have Rust and Cargo installed, you can clone this repository and install the interpreter with Cargo:
 
