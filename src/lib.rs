@@ -31,7 +31,7 @@ mod symbol;
 pub use symbol::*;
 
 mod parse;
-pub use parse::*;
+use parse::*;
 
 mod env;
 pub use env::*;

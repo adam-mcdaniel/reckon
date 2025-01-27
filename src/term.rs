@@ -605,7 +605,7 @@ impl FromStr for Term {
 /// 
 /// The function name is a symbol, and the arguments are logical terms.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(super) struct AppTerm {
+pub struct AppTerm {
     /// The name of the function to apply
     pub func: Symbol,
     /// The terms to apply the function to

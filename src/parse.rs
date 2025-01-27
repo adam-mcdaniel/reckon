@@ -411,34 +411,6 @@ pub(super) fn parse_query(i: &str) -> IResult<&str, Query, Error> {
     Ok((i, Query::new(goals)))
 }
 
-// --- Helper for parsing multiple rules or queries from a file/string ---
-
-/// Parse multiple rules separated by whitespace until EOF.
-pub(super) fn parse_rules(i: &str) -> IResult<&str, Vec<Rule>, Error> {
-    let mut acc = Vec::new();
-    let mut input = i;
-
-    loop {
-        // Attempt to parse one rule
-        let res = parse_rule(input);
-        match res {
-            Ok((rest, rule)) => {
-                acc.push(rule);
-                input = rest;
-                // Continue if there's more
-                if rest.trim().is_empty() {
-                    break;
-                }
-            }
-            // If we fail because there's no more data or partial leftover, stop.
-            Err(_) => break,
-        }
-    }
-
-    // Return the successfully parsed rules plus the remainder
-    Ok((input, acc))
-}
-
 fn options_int_flag(i: &str) -> IResult<&str, (&str, String, i64), Error> {
     let flag_input = i;
     let (i, flag_name) = ws(parse_symbol)(i)?;
